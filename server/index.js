@@ -129,6 +129,8 @@ function makeApp(cfg, opts) {
 
   route('GET', /^\/vendors$/, ['store', 'accountant', 'admin'], async ({ p, url }) => {
     const all = url.searchParams.get('all') === '1';
+    const givenBrand = url.searchParams.get('brand_id');
+    if (all && p.role === 'accountant' && givenBrand && givenBrand !== p.brand_id) throw new ApiError('FORBIDDEN', '不能操作其他品牌的資料');
     if (all && p.role === 'store') throw new ApiError('FORBIDDEN', '這個帳號沒有權限做這件事');
     const act = all ? '' : ' AND active = 1';
     let rows;
@@ -282,11 +284,13 @@ function makeApp(cfg, opts) {
             if (seenIds.has(Number(l.id))) throw new ApiError('BAD_INPUT', `明細列 ${l.id} 重複出現`);
             seenIds.add(Number(l.id));
           }
-          const nl = { raw_name: String(l.raw_name == null ? '' : l.raw_name).slice(0, 200), unit: String(l.unit == null ? '' : l.unit).slice(0, 20),
+          const nl = { raw_name: String(l.raw_name == null ? '' : l.raw_name).replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim().slice(0, 200), unit: String(l.unit == null ? '' : l.unit).slice(0, 20),
             qty: num(l.qty, `第 ${i + 1} 列數量`, 'pos'), unit_price: num(l.unit_price, `第 ${i + 1} 列單價`, 'pos'), amount: num(l.amount, `第 ${i + 1} 列金額`, 'pos'), item_id: null };
           if (l.item_id) {
-            const it = db.prepare('SELECT id FROM items WHERE id = ? AND brand_id = ?').get(Number(l.item_id), s.brand_id);
+            const it = db.prepare('SELECT id, active FROM items WHERE id = ? AND brand_id = ?').get(Number(l.item_id), s.brand_id);
             if (!it) throw new ApiError('BAD_INPUT', 'item_id 不存在或不屬於這個品牌');
+            const prevOwn = l.id !== undefined && l.id !== null ? old.get(Number(l.id)) : null;
+            if (!it.active && !(prevOwn && prevOwn.item_id === it.id)) throw new ApiError('BAD_INPUT', '這個品項已停用，請改選其他品項');   // 原本就掛著的列維持原樣不擋
             nl.item_id = it.id;
           }
           const o = l.id !== undefined && l.id !== null ? old.get(Number(l.id)) : null;
@@ -332,7 +336,7 @@ function makeApp(cfg, opts) {
     // 廠商記憶：有對到統一品名的列，記下「廠商＋原始寫法 → 品名」；再算價格變動提醒（先清掉舊的，避免重複）
     if (cur.vendor_id) {
       const up = db.prepare('INSERT OR REPLACE INTO item_aliases (vendor_id, raw_name, item_id) VALUES (?,?,?)');
-      for (const l of r.lines) if (l.item_id && l.raw_name) up.run(cur.vendor_id, l.raw_name, l.item_id);
+      for (const l of r.lines) { const rn = String(l.raw_name || '').trim(); if (l.item_id && rn) up.run(cur.vendor_id, rn, l.item_id); }
     }
     calc.clearPriceAlerts(db, s.id);
     calc.generatePriceAlerts(db, s.id, isoNow());

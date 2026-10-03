@@ -5,7 +5,7 @@ const { postprocess, evaluate, parseDate, fixDate, FLAG_ORDER } = require('../se
 
 const SHOT = '2026-10-03';
 const mk = (o) => Object.assign({ vendor: 'V', date: '2026-10-01', doc_no: '1', lines: [], subtotal: '', tax: '', total: '', handwritten_changes: '' }, o);
-const L = (name, qty, unit_price, amount, unit) => ({ name, qty, unit: unit || '', unit_price, amount });
+const L = (name, qty, unit_price, amount, unit) => ({ name, qty, unit: unit == null ? '公斤' : unit, unit_price, amount });
 const mapped = { resolveItem: () => ({ id: 1, base_unit: '公斤' }), hasConv: () => true };
 
 test('契約旗標表正好 8 個', () => {
@@ -95,7 +95,7 @@ test('數字格式：千分位、全形、單位黏在一起', () => {
 });
 
 test('evaluate 重算：保留 AMOUNT_FIXED／DATE_FIXED 等歷史旗標，重算計算型旗標', () => {
-  const r = evaluate({ total: 100, flags: ['DATE_FIXED'] }, [{ qty: 1, unit_price: 100, amount: 100, flags: ['AMOUNT_FIXED', 'PRICE_MISSING'], raw_name: 'a' }], mapped);
+  const r = evaluate({ total: 100, flags: ['DATE_FIXED'] }, [{ qty: 1, unit: '公斤', unit_price: 100, amount: 100, flags: ['AMOUNT_FIXED', 'PRICE_MISSING'], raw_name: 'a' }], mapped);
   assert.deepStrictEqual(r.lines[0].flags, ['AMOUNT_FIXED']);
   assert.deepStrictEqual(r.flags, ['DATE_FIXED']);
 });

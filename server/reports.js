@@ -80,9 +80,11 @@ module.exports = function register(ctx) {
 
   // ---------- 會計現行格式匯出 ----------
   route('GET', /^\/export\/legacy\.xlsx$/, ROLES, async ({ p, url, req, res }) => {
-    const brand = scope(p, url);
+    let brand = scope(p, url);
     const month = monthParam(url);
     const storeId = storeScope(brand, url);
+    if (!brand && storeId) brand = db.prepare('SELECT brand_id FROM stores WHERE id = ?').get(storeId).brand_id;   // 指定門市＝品牌已定
+    if (!brand) throw new ApiError('BAD_INPUT', '請選擇品牌');   // 避免三品牌同名廠商合併成同一欄
     const wb = await buildLegacyWorkbook(month, { brandId: brand, storeId });
     const buf = Buffer.from(await wb.xlsx.writeBuffer());
     res.writeHead(200, Object.assign({

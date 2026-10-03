@@ -26,9 +26,10 @@ function convMap(db) {
   for (const r of db.prepare('SELECT item_id, unit, factor_to_base f FROM unit_conv').all()) map.set(`${r.item_id}|${r.unit}`, r.f);
   return map;
 }
-// 換算係數；查不到回 null。單位空白視為統一單位（與 postprocess.evaluate 不標旗標的判斷一致）
+// 換算係數；查不到回 null。契約：只有 unit 與 base_unit 相同時 factor=1；空白單位一律視為查不到（與 postprocess.evaluate 同一判斷）
 function factorOf(conv, itemId, unit, baseUnit) {
-  if (!unit || unit === baseUnit) return 1;
+  if (!unit) return null;
+  if (unit === baseUnit) return 1;
   const f = conv.get(`${itemId}|${unit}`);
   return f > 0 ? f : null;
 }

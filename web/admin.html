@@ -172,7 +172,7 @@ async function viewStores() {
         o.code = o.code.toUpperCase();
         if (!/^[XMC]\d{2}$/.test(o.code)) throw new Error('門市代號格式：品牌字首（X／M／C）加 2 位數字');
         if (!o.name) throw new Error('請填門市名稱');
-        if (!o.password) delete o.password; else if (o.password.length < 4) throw new Error('密碼至少 4 碼');
+        if (!o.password) delete o.password; else if (o.password.length < 6) throw new Error('密碼至少 6 碼');
         if (!s && !o.password) throw new Error('新增門市要設定密碼');
         return s ? API.call('/admin/stores/' + s.id, { method: 'PUT', body: o }) : API.call('/admin/stores', { method: 'POST', body: o });
       } });
@@ -195,7 +195,7 @@ async function viewUsers() {
         if (!o.username || !o.name) throw new Error('請填帳號與姓名');
         if (o.role === 'accountant' && !o.brand_id) throw new Error('會計帳號要選品牌');
         if (o.role === 'admin') o.brand_id = null; else if (!o.brand_id) o.brand_id = null;
-        if (!o.password) delete o.password; else if (o.password.length < 4) throw new Error('密碼至少 4 碼');
+        if (!o.password) delete o.password; else if (o.password.length < 6) throw new Error('密碼至少 6 碼');
         if (!u && !o.password) throw new Error('新增帳號要設定密碼');
         return u ? API.call('/admin/users/' + u.id, { method: 'PUT', body: o }) : API.call('/admin/users', { method: 'POST', body: o });
       } });

@@ -31,7 +31,7 @@ function makeCtx(db, brandId, vendorId, useAlias) {
         if (it) return it;
       }
       if (useAlias && vendorId && line.raw_name) {
-        return db.prepare('SELECT i.id, i.base_unit FROM item_aliases a JOIN items i ON i.id = a.item_id WHERE a.vendor_id = ? AND a.raw_name = ? AND i.brand_id = ? AND i.active = 1').get(vendorId, line.raw_name, brandId) || null;
+        return db.prepare('SELECT i.id, i.base_unit FROM item_aliases a JOIN items i ON i.id = a.item_id WHERE a.vendor_id = ? AND a.raw_name = ? AND i.brand_id = ? AND i.active = 1').get(vendorId, String(line.raw_name).trim(), brandId) || null;
       }
       return null;
     },

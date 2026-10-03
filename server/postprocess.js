@@ -90,7 +90,7 @@ function evaluate(slip, lines, ctx) {
     else if (qty != null && a != null && !near(round2(qty * p), a)) f.add('AMOUNT_MISMATCH');
     const item = resolve(l);
     if (!item) f.add('ITEM_UNMAPPED');
-    else if (l.unit && item.base_unit && l.unit !== item.base_unit && !hasConv(item.id, l.unit)) f.add('UNIT_UNCONVERTED');
+    else if (!l.unit || (l.unit !== item.base_unit && !hasConv(item.id, l.unit))) f.add('UNIT_UNCONVERTED');   // 空白單位＝查不到換算（與 calc.factorOf 同一判斷）
     return Object.assign({}, l, { item_id: l.item_id != null ? l.item_id : (item ? item.id : null), flags: sortFlags(f) });
   });
   const sf = new Set();

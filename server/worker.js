@@ -17,6 +17,9 @@ const PROMPT = `這是一張台灣餐廳收到的廠商貨單（出貨單／銷�
 // 廠商記憶（spec 4.2）：同廠商最近 3 張已入帳貨單的「品名、數量、單位、單價」附在提示詞後，只當參考。
 // 沒有廠商或沒有歷史 → 原樣回傳基本提示詞。
 const EXAMPLE_SLIPS = 3, EXAMPLE_LINES = 15;
+// 廠商記憶進提示詞前先清洗：去控制字元／換行、移除反引號與大括號、截 40 字（防持久性提示詞注入）
+const cleanMemo = (s) => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029`{}]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
+const numOrBlank = (x) => (x == null || !Number.isFinite(Number(x)) ? '' : Number(x));
 function buildPrompt(db, brandId, vendorId) {
   if (!vendorId) return PROMPT;
   const slips = db.prepare("SELECT id FROM slips WHERE status = 'confirmed' AND vendor_id = ? AND brand_id = ? ORDER BY confirmed_at DESC, id DESC LIMIT ?").all(vendorId, brandId, EXAMPLE_SLIPS);
@@ -24,7 +27,7 @@ function buildPrompt(db, brandId, vendorId) {
   for (const s of slips) {
     const ls = db.prepare('SELECT raw_name, qty, unit, unit_price FROM slip_lines WHERE slip_id = ? ORDER BY seq LIMIT ?').all(s.id, EXAMPLE_LINES);
     if (!ls.length) continue;
-    blocks.push(`範例 ${blocks.length + 1}：\n` + ls.map((l) => `- ${l.raw_name}｜${l.qty == null ? '' : l.qty}${l.unit || ''}｜單價 ${l.unit_price == null ? '' : l.unit_price}`).join('\n'));
+    blocks.push(`範例 ${blocks.length + 1}：\n` + ls.map((l) => `- ${cleanMemo(l.raw_name)}｜${numOrBlank(l.qty)}${cleanMemo(l.unit)}｜單價 ${numOrBlank(l.unit_price)}`).join('\n'));
   }
   if (!blocks.length) return PROMPT;
   return `${PROMPT}\n\n這家廠商最近幾張貨單的品項大致長這樣（僅供參考，以照片為準；照片上沒有的品項不要寫）：\n${blocks.join('\n')}`;
@@ -194,4 +197,4 @@ function createWorker({ db, cfg, recognize, log }) {
   };
 }
 
-module.exports = { createWorker, PROMPT, buildPrompt, ollamaRecognize, parseAi, shrink };
+module.exports = { createWorker, PROMPT, buildPrompt, cleanMemo, ollamaRecognize, parseAi, shrink };
