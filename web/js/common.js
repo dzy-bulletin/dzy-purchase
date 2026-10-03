@@ -32,26 +32,58 @@ var Common = (function () {
     return API.call(path, Object.assign({ method: method, body: body }, opts));
   }
 
-  function headerHTML(o, s) {
-    var nav = '';
-    if (o.nav && s && (s.role === 'accountant' || s.role === 'admin')) {
-      nav = '<nav class="nav" aria-label="主選單">' + [['review.html', '核對', 'review'], ['reports.html', '報表', 'reports'], ['admin.html', '設定', 'admin']].map(function (n) {
-        return '<a href="' + n[0] + '"' + (o.nav === n[2] ? ' class="on" aria-current="page"' : '') + '>' + n[1] + '</a>';
-      }).join('') + '</nav>';
-    }
-    var picker = '';
-    if (s && s.role === 'admin') {
-      picker = '<select id="brandPick" aria-label="工作品牌">' + ['X', 'M', 'C'].map(function (b) { return '<option value="' + b + '"' + (adminBrand() === b ? ' selected' : '') + '>' + BRAND_NAME[b] + '</option>'; }).join('') + '</select>';
-    }
-    return '<div class="stripe"></div><header class="hdr"><div class="l"><div class="logos"></div><span class="ttl">' + esc(o.title) + '</span>' +
-      (s ? '<span class="who">' + esc(o.who ? o.who(s) : (s.name || '')) + '</span>' : '') + '</div>' +
-      '<div class="r">' + nav + picker + (s ? '<button id="logout" type="button">登出</button>' : '') + '</div></header>';
+  var NAV_GROUPS = [
+    { label: '核對', items: [['review.html', 'review', '待核對', 'review'], ['review.html', 'returned', '退回', 'cnt'], ['review.html', 'confirmed', '已入帳', 'cnt'], ['review.html', 'failed', '辨識失敗', 'cnt']] },
+    { label: '報表', items: [['reports.html', 'cost', '食材成本'], ['reports.html', 'price', '單價走勢'], ['reports.html', 'daily', '每日進貨'], ['reports.html', 'alerts', '價格變動提醒']] },
+    { label: '設定', items: [['admin.html', 'items', '品項'], ['admin.html', 'vendors', '廠商'], ['admin.html', 'pnl', '損益對照'], ['admin.html', 'stores', '門市', 'admin'], ['admin.html', 'users', '帳號', 'admin']] }
+  ];
+  var NAV_DEFAULT = { 'review.html': 'review', 'reports.html': 'cost', 'admin.html': 'items' };
+  var ROLE_TEXT = { admin: '管理員', accountant: '會計' };
+  function curPage() { return (location.pathname.split('/').pop() || '') || 'review.html'; }
+  /* 目前所在項目高亮（aria-current）；頁內換分頁只改 hash，所以 hashchange 也要呼叫 */
+  function syncNav() {
+    var page = curPage(), key = (location.hash || '').slice(1) || NAV_DEFAULT[page];
+    Array.prototype.forEach.call(document.querySelectorAll('#snav a[data-page]'), function (a) {
+      if (a.dataset.page === page && a.dataset.key === key) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    });
+  }
+  /* 核對各狀態筆數（counts: {review:n, returned:n, ...}） */
+  function setCounts(counts) {
+    Array.prototype.forEach.call(document.querySelectorAll('#snav [data-cnt]'), function (el) {
+      var v = counts[el.dataset.cnt]; el.textContent = v == null ? '' : v;
+    });
+  }
+  function sideHTML(s) {
+    var groups = NAV_GROUPS.map(function (g) {
+      var items = g.items.filter(function (i) { return i[3] !== 'admin' || s.role === 'admin'; }).map(function (i) {
+        var cnt = g.label === '核對' ? '<span class="cnt" data-cnt="' + i[1] + '"></span>' : '';
+        return '<a href="' + i[0] + '#' + i[1] + '" data-page="' + i[0] + '" data-key="' + i[1] + '"><span class="tx">' + i[2] + '</span>' + cnt + '</a>';
+      }).join('');
+      return '<div class="sgrp" role="group" aria-label="' + g.label + '"><div class="slabel">' + g.label + '</div>' + items + '</div>';
+    }).join('');
+    var picker = s.role === 'admin' ? '<label class="spick">工作品牌<select id="brandPick">' + ['X', 'M', 'C'].map(function (b) { return '<option value="' + b + '"' + (adminBrand() === b ? ' selected' : '') + '>' + BRAND_NAME[b] + '</option>'; }).join('') + '</select></label>' : '';
+    return picker + '<nav id="snav" aria-label="主選單">' + groups + '</nav>' +
+      '<div class="suser"><div class="who"><div class="nm">' + esc(s.name || '') + '</div><div class="rl">' + esc(ROLE_TEXT[s.role] || s.role) + '</div></div><button id="logout" type="button">登出</button></div>';
   }
 
-  /* o: {title, nav, roles:[...], who(s), loginTitle, loginHint, accLabel, upper, previewBrand(accountValue), onReady(session)} */
+  function headerHTML(o, s) {
+    return '<header class="hdr"><div class="logos"></div><span class="ttl">' + esc(o.title) + '</span>' +
+      (s && !o.nav ? '<button id="logout" type="button" class="hout">登出</button>' : '') + '</header>';
+  }
+
+  /* o: {title, nav, roles:[...], loginTitle, loginHint, accLabel, upper, previewBrand(accountValue), onHash(key), onReady(session)}
+     o.nav：核對／報表／設定頁，登入後在視窗左側加側欄（上傳頁不給 nav，只有品牌色標題列） */
   function gate(o) {
-    var hdr = $('hdr'), loginBox = $('login'), app = $('app');
+    var hdr = $('hdr'), loginBox = $('login'), app = $('app'), shell = null;
+    function ensureShell() {
+      if (shell || !o.nav) return shell;
+      shell = document.createElement('div'); shell.id = 'shell';
+      var side = document.createElement('aside'); side.id = 'side';
+      app.parentNode.insertBefore(shell, app); shell.appendChild(side); shell.appendChild(app);
+      return shell;
+    }
     function showLogin() {
+      if (shell) shell.classList.add('hidden');
       app.classList.add('hidden'); loginBox.classList.remove('hidden');
       hdr.innerHTML = headerHTML(o, null); applyTheme(null);
       loginBox.innerHTML = '<div class="page" style="max-width:440px;padding-top:2rem"><div class="card"><h1>' + esc(o.loginTitle || o.title) + '</h1>' +
@@ -77,11 +109,13 @@ var Common = (function () {
       loginBox.classList.add('hidden'); loginBox.innerHTML = ''; app.classList.remove('hidden');
       hdr.innerHTML = headerHTML(o, s);
       applyTheme(s.role === 'admin' ? null : s.brand_id);
+      if (o.nav) { ensureShell().classList.remove('hidden'); $('side').innerHTML = sideHTML(s); syncNav(); }
       $('logout').onclick = function () { API.logout(); showLogin(); };
       if ($('brandPick')) $('brandPick').onchange = function () { try { localStorage.setItem(ADMIN_KEY, this.value); } catch (e) {} location.reload(); };
       o.onReady(s);
     }
     API.onUnauthorized = showLogin;
+    window.addEventListener('hashchange', function () { syncNav(); if (o.onHash && API.session()) o.onHash((location.hash || '').slice(1)); });
     var s0 = API.session();
     if (s0 && o.roles.indexOf(s0.role) >= 0) start(); else { if (s0) API.logout(); showLogin(); }
   }
@@ -95,5 +129,5 @@ var Common = (function () {
   function today() { return new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10); }
   function showMsg(boxId, text, cls) { $(boxId).innerHTML = text ? '<div class="msg ' + (cls || 'info') + '" role="status">' + esc(text) + '</div>' : ''; }
 
-  return { isAdmin: isAdmin, adminBrand: adminBrand, workBrand: workBrand, qs: qs, get: get, send: send, gate: gate, download: download, monthNow: monthNow, today: today, showMsg: showMsg };
+  return { isAdmin: isAdmin, adminBrand: adminBrand, workBrand: workBrand, qs: qs, get: get, send: send, gate: gate, syncNav: syncNav, setCounts: setCounts, download: download, monthNow: monthNow, today: today, showMsg: showMsg };
 })();

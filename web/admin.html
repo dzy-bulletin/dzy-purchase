@@ -22,7 +22,6 @@
 <div id="hdr"></div>
 <section id="login" class="hidden"></section>
 <main id="app" class="page hidden">
-  <div class="tabs" id="tabs" role="tablist"></div>
   <div id="msg"></div>
   <div id="panel"></div>
   <div id="body" class="muted">讀取中…</div>
@@ -37,23 +36,23 @@
 'use strict';
 var TAB = 'items';
 var SESSION = null;
+var TABS = [];
 
 Common.gate({
   title: '設定', nav: 'admin', roles: ['accountant', 'admin'], roleError: '這個帳號不是會計帳號',
   loginHint: '會計與管理員登入', accLabel: '帳號',
+  onHash: function (k) { if (TABS.some(function (t) { return t[0] === k; }) && k !== TAB) go(k); },
   onReady: function (s) {
     SESSION = s;
     var tabs = [['items', '品項'], ['vendors', '廠商'], ['pnl', '損益對照']];
     if (s.role === 'admin') tabs.push(['stores', '門市'], ['users', '帳號']);
-    $('tabs').innerHTML = tabs.map(function (t) { return '<button type="button" role="tab" data-t="' + t[0] + '">' + t[1] + '</button>'; }).join('');
-    Array.prototype.forEach.call($('tabs').querySelectorAll('button'), function (b) { b.onclick = function () { go(b.dataset.t); }; });
+    TABS = tabs;
     var h = (location.hash || '').slice(1);
     go(tabs.some(function (t) { return t[0] === h; }) ? h : 'items');
   }
 });
 function go(t) {
-  TAB = t; location.hash = t; $('panel').innerHTML = ''; $('msg').innerHTML = '';
-  Array.prototype.forEach.call($('tabs').querySelectorAll('button'), function (b) { var on = b.dataset.t === t; b.className = on ? 'on' : ''; b.setAttribute('aria-selected', on); });
+  TAB = t; location.hash = t; $('panel').innerHTML = ''; $('msg').innerHTML = ''; Common.syncNav();
   ({ items: viewItems, vendors: viewVendors, pnl: viewPnl, stores: viewStores, users: viewUsers })[t]();
 }
 function msg(t, cls) { Common.showMsg('msg', t, cls); }

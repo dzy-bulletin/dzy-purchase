@@ -14,9 +14,7 @@
   .wrap{padding-top:1rem;max-width:560px;margin:0 auto;padding:0 1rem 4rem;overflow-x:hidden}
   #login{overflow-x:hidden}
   .hdr{padding:.5rem 1rem}
-  .hdr .ttl{font-size:1.05rem;letter-spacing:.1em}
-  @media (max-width:520px){.hdr .who{display:none}}
-  .hdr .logos img{height:30px}
+  .hdr .logos img{height:36px}
   .stack button,.bigbtn{min-height:52px;font-size:1rem}
   select,input{min-height:52px;font-size:1rem}
   .thumbs{display:flex;gap:.5rem;flex-wrap:wrap;margin:.6rem 0}
@@ -43,6 +41,7 @@
     <div id="pendingBar" class="msg info pending hidden">
       <span id="pendingText"></span><button id="retryNow" type="button">立即補傳</button>
     </div>
+    <p id="who" class="muted" style="margin:.2rem 0 0"></p>
     <div id="msg"></div>
 
     <div class="card stack">
@@ -64,6 +63,7 @@
     <div class="plain">
       <div class="row"><h2 class="grow" style="margin:0">我的上傳</h2><button id="refresh" type="button">重新整理</button></div>
       <div id="mine" class="muted" style="margin-top:.5rem">讀取中…</div>
+      <button id="moreBtn" type="button" class="bigbtn hidden">看更多（最近 30 天）</button>
     </div>
     <p class="muted" style="text-align:center">v<span id="ver"></span></p>
   </div>
@@ -241,28 +241,39 @@ window.addEventListener('online', function () { flush(); });
 setInterval(function () { flush(); }, 30000);
 
 /* ---------- 我的上傳 ---------- */
+var showAll = false;   // 預設只列今天與昨天；「看更多」展開最近 30 天（API 本來就回 30 天）
+function dayTW(iso) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  return m ? m[1] + '-' + m[2] + '-' + m[3] : '';
+}
+function slipHTML(s) {
+  var ret = s.status === 'returned';
+  return '<div class="slip' + (ret ? ' ret' : '') + '"><div class="row"><span class="t grow">' + esc(s.vendor_name || '（未指定廠商）') +
+    '</span><span class="badge b-' + esc(s.status) + '">' + esc(STATUS_TEXT[s.status] || s.status) + '</span></div>' +
+    '<div class="muted">' + esc(s.id) + '　' + esc(twTime(s.uploaded_at)) + '</div>' +
+    (ret ? '<div style="color:var(--red-t);font-weight:600">請重新拍照上傳這張貨單' + (s.return_reason ? '：' + esc(s.return_reason) : '') + '</div>' : '') + '</div>';
+}
 async function loadMine() {
-  var box = $('mine');
+  var box = $('mine'), more = $('moreBtn');
   try {
     var list = await API.call('/slips?mine=1');
-    if (!list.length) { box.textContent = '最近 30 天還沒有上傳'; return; }
-    box.innerHTML = list.map(function (s) {
-      var ret = s.status === 'returned';
-      return '<div class="slip' + (ret ? ' ret' : '') + '"><div class="row"><span class="t grow">' + esc(s.vendor_name || '（未指定廠商）') +
-        '</span><span class="badge b-' + esc(s.status) + '">' + esc(STATUS_TEXT[s.status] || s.status) + '</span></div>' +
-        '<div class="muted">' + esc(s.id) + '　' + esc(twTime(s.uploaded_at)) + '</div>' +
-        (ret ? '<div style="color:var(--red-t);font-weight:600">請重新拍照上傳這張貨單' + (s.return_reason ? '：' + esc(s.return_reason) : '') + '</div>' : '') + '</div>';
-    }).join('');
-  } catch (e) { box.textContent = '讀不到上傳紀錄：' + e.message; }
+    if (!list.length) { box.textContent = '最近 30 天還沒有上傳'; more.classList.add('hidden'); return; }
+    var t = Common.today(), y = new Date(Date.parse(t + 'T00:00:00Z') - 86400e3).toISOString().slice(0, 10);
+    var recent = list.filter(function (s) { var d = dayTW(s.uploaded_at); return d === t || d === y; });
+    var shown = showAll ? list : recent, rest = list.length - recent.length;
+    box.innerHTML = shown.length ? shown.map(slipHTML).join('') : '今天與昨天沒有上傳';
+    more.classList.toggle('hidden', showAll || rest <= 0);
+    more.textContent = '看更多（最近 30 天，另有 ' + rest + ' 張）';
+  } catch (e) { box.textContent = '讀不到上傳紀錄：' + e.message; more.classList.add('hidden'); }
 }
+$('moreBtn').onclick = function () { showAll = true; loadMine(); };
 $('refresh').onclick = loadMine;
 
 Common.gate({
   title: '貨單上傳', roles: ['store'], roleError: '請用門市代號登入', upper: true,
   loginHint: '請用門市代號登入（例如 X01）', accLabel: '門市代號',
-  who: function (s) { return s.name || s.store_id || ''; },
-  previewBrand: function (v) { var c = (v || '').charAt(0).toUpperCase(); return THEMES[c] && c !== '_' ? c : null; },
-  onReady: function () { $('ver').textContent = CFG.VERSION; loadVendors(); loadMine(); updatePending(); flush(); }
+    previewBrand: function (v) { var c = (v || '').charAt(0).toUpperCase(); return THEMES[c] && c !== '_' ? c : null; },
+  onReady: function (s) { $('who').textContent = s.name || s.store_id || ''; $('ver').textContent = CFG.VERSION; loadVendors(); loadMine(); updatePending(); flush(); }
 });
 </script>
 </body>

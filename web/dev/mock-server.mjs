@@ -62,7 +62,16 @@ const slips = [
   mk('S20261003-0005', 'review', '示範海產行', [{ raw_name: '干貝（大）', qty: 6, unit: '包', unit_price: 300, amount: 1800, flags: ['ITEM_UNMAPPED'] }], { brand_id: 'M', store_id: 'M01', store_name: '示範墨竹亭店', vendor_id: 4, total: 1800 }),
   mk('S20261003-0006', 'review', '示範米糧行', [{ raw_name: '白米 30kg', qty: 3, unit: '袋', unit_price: 900, amount: 2700, flags: ['ITEM_UNMAPPED', 'UNIT_UNCONVERTED'] }], { brand_id: 'C', store_id: 'C01', store_name: '示範中央廚房', vendor_id: 5, total: 2700 })
 ];
-let seq = 6;
+// 「我的上傳」今天／昨天／更早（相對現在，台北時間）、以及退回／已入帳各一張，供側欄筆數與看更多的截圖用
+const dayAgo = n => new Date(Date.now() + 8 * 3600e3 - n * 86400e3).toISOString().slice(0, 10) + 'T09:00:00';
+slips.push(
+  mk('S20261003-0007', 'returned', '示範蔬果行', [], { uploaded_at: dayAgo(0), return_reason: '照片太糊' }),
+  mk('S20261003-0008', 'confirmed', '示範肉品行', [{ raw_name: '豬頭皮', qty: 2, unit: '斤', unit_price: 50, amount: 100, item_id: 1, checked: 1 }], { total: 100, uploaded_at: dayAgo(1) }),
+  mk('S20261003-0009', 'confirmed', '示範蔬果行', [{ raw_name: '高麗菜', qty: 4, unit: '斤', unit_price: 15, amount: 60, item_id: 3, checked: 1 }], { vendor_id: 2, total: 60, uploaded_at: dayAgo(6) }),
+  mk('S20261003-0010', 'confirmed', '示範肉品行', [{ raw_name: '鴨掌', qty: 1, unit: '斤', unit_price: 120, amount: 120, item_id: 2, checked: 1 }], { total: 120, uploaded_at: dayAgo(13) })
+);
+slips.filter(x => x.store_id === 'X01' && x.status === 'review').forEach((x, i) => { x.uploaded_at = dayAgo(i ? 3 : 0); });
+let seq = 10;
 const send = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', ...cors }); res.end(JSON.stringify(obj)); };
 const ok = (res, data) => send(res, 200, { ok: true, data });
 const fail = (res, code, error, message) => send(res, code, { ok: false, error, message });

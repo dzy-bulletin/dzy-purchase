@@ -39,12 +39,6 @@
 <div id="hdr"></div>
 <section id="login" class="hidden"></section>
 <main id="app" class="page hidden">
-  <div class="tabs" id="tabs" role="tablist">
-    <button type="button" role="tab" data-t="cost">食材成本</button>
-    <button type="button" role="tab" data-t="price">單價走勢</button>
-    <button type="button" role="tab" data-t="daily">每日進貨</button>
-    <button type="button" role="tab" data-t="alerts">價格變動提醒</button>
-  </div>
   <div id="msg"></div>
   <div id="body"></div>
 </main>
@@ -64,19 +58,18 @@ var seenStores = {};      // 後備：從報表回應收集到的門市
 Common.gate({
   title: '報表', nav: 'reports', roles: ['accountant', 'admin'], roleError: '這個帳號不是會計帳號',
   loginHint: '會計與管理員登入', accLabel: '帳號',
+  onHash: function (k) { if (['cost', 'price', 'daily', 'alerts'].indexOf(k) >= 0 && k !== TAB) go(k); },
   onReady: async function () {
     try {
       var all = await Common.get('/stores');   // 會計＝自己品牌；admin 依 brand_id
       STORES = all.filter(function (s) { return s.active !== 0 && s.active !== false; }).map(function (s) { return { id: s.id, name: s.name }; });
     } catch (e) { STORES = []; }
-    Array.prototype.forEach.call($('tabs').querySelectorAll('button'), function (b) { b.onclick = function () { go(b.dataset.t); }; });
     var h = (location.hash || '').slice(1);
     go(['cost', 'price', 'daily', 'alerts'].indexOf(h) >= 0 ? h : 'cost');
   }
 });
 function go(t) {
-  TAB = t; location.hash = t; $('msg').innerHTML = '';
-  Array.prototype.forEach.call($('tabs').querySelectorAll('button'), function (b) { var on = b.dataset.t === t; b.className = on ? 'on' : ''; b.setAttribute('aria-selected', on); });
+  TAB = t; location.hash = t; $('msg').innerHTML = ''; Common.syncNav();
   ({ cost: viewCost, price: viewPrice, daily: viewDaily, alerts: viewAlerts })[t]();
 }
 function fail(e) { $('body').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; }
