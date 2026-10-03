@@ -74,7 +74,7 @@ test('T17 推送內容：完整 entries（金額含稅額分攤）、未對照�
     const db = t.app.db, f = pnlFixture(db);
     t.app.pnlPush.markDirty(c01(db), '2026-10-02', '2026-10-03T00:00:00Z');
     const r = await t.app.pnlPush.tick();
-    assert.deepStrictEqual(r, { ok: 1, failed: 0, skipped: 0, empty: 0, retired: 0 });
+    assert.deepStrictEqual(r, { ok: 1, failed: 0, skipped: 0, empty: 0, retired: 0, terminal: 0 });
     assert.strictEqual(fake.reqs.length, 1);
     const q = fake.reqs[0];
     assert.strictEqual(q.action, 'purchasePush'); assert.strictEqual(q.key, KEY); assert.strictEqual(q.store_id, 'U-C01'); assert.strictEqual(q.month, '2026-10');
@@ -130,7 +130,7 @@ test('T17 科目歸 0 也要送：取消入帳後曾推過的科目送 0；重�
 test('T17 失敗重試與指數退避（1、2、4、8、16 分，上限 30 分）；恢復後補推；成功才清 outbox', async () => {
   assert.deepStrictEqual([1, 2, 3, 4, 5, 6, 7, 20].map((n) => backoffMs(n) / 60e3), [1, 2, 4, 8, 16, 30, 30, 30]);
   let mode = 'fail500';
-  const fake = await fakeServer(() => (mode === 'fail500' ? { status: 500, raw: 'oops' } : mode === 'rej' ? { json: { ok: false, code: 'BAD_INPUT', message: 'x' } } : OK()));
+  const fake = await fakeServer(() => (mode === 'fail500' ? { status: 500, raw: 'oops' } : mode === 'rej' ? { json: { ok: false, code: 'BUSY', message: 'x' } } : OK()));
   const clock = { t: Date.parse('2026-10-03T00:00:00Z') };
   const t = await startApp({ now: () => new Date(clock.t), cfg: { PNL_PUSH_URL: fake.url, PNL_PURCHASE_KEY: KEY } });
   try {
@@ -141,9 +141,9 @@ test('T17 失敗重試與指數退避（1、2、4、8、16 分，上限 30 分�
     let row = db.prepare('SELECT * FROM pnl_outbox').get();
     assert.strictEqual(row.attempts, 1); assert.strictEqual(row.last_error, 'NOT_JSON'); assert.strictEqual(Date.parse(row.next_at) - clock.t, 60e3);
     clock.t += 30e3; await t.app.pnlPush.tick(); assert.strictEqual(fake.reqs.length, 1, '退避中不送');
-    clock.t += 31e3; mode = 'rej'; await t.app.pnlPush.tick(); assert.strictEqual(fake.reqs.length, 2);      // 第 2 次：對方回 BAD_INPUT 也算失敗
+    clock.t += 31e3; mode = 'rej'; await t.app.pnlPush.tick(); assert.strictEqual(fake.reqs.length, 2);      // 第 2 次：對方回 BUSY（可重試的錯誤）照退避
     row = db.prepare('SELECT * FROM pnl_outbox').get();
-    assert.strictEqual(row.attempts, 2); assert.strictEqual(row.last_error, 'BAD_INPUT: x'); assert.strictEqual(Date.parse(row.next_at) - clock.t, 120e3);
+    assert.strictEqual(row.attempts, 2); assert.strictEqual(row.last_error, 'BUSY: x'); assert.strictEqual(Date.parse(row.next_at) - clock.t, 120e3);
     assert.strictEqual(row.first_fail_at, '2026-10-03T00:00:00.000Z', 'first_fail_at 保持第一次失敗的時間');
     clock.t += 121e3; await t.app.pnlPush.tick(); assert.strictEqual(db.prepare('SELECT attempts a FROM pnl_outbox').get().a, 3);
     // 斷線恢復：下次到期就補推成功
@@ -430,7 +430,7 @@ test('T20 /health 端點：Ollama 開關轉紅／恢復、佇列卡住、備份�
     let h = await health();
     assert.strictEqual(h.status, 'green', JSON.stringify(h));            // 沒有已入帳資料 → 備份不算；損益有設；沒有待補對照
     assert.strictEqual(h.ok, true); assert.deepStrictEqual(h.queue, { waiting: 0, oldest_min: 0 });
-    assert.deepStrictEqual(h.backup, { last_ok_at: null }); assert.deepStrictEqual(h.pnl, { configured: true, last_ok_at: null, pending: 0 }); assert.strictEqual(h.unmapped_amount, 0);
+    assert.deepStrictEqual(h.backup, { last_ok_at: null }); assert.deepStrictEqual(h.pnl, { configured: true, last_ok_at: null, pending: 0, terminal: 0 }); assert.strictEqual(h.unmapped_amount, 0);
     // Ollama 關掉 → 紅；開回來 → 綠
     ollamaUp = false; h = await health(); assert.strictEqual(h.status, 'red'); assert.ok(h.reasons.includes('Ollama 沒有回應'));
     ollamaUp = true; assert.strictEqual((await health()).status, 'green');
@@ -715,4 +715,154 @@ test('#11 allocateTax：各列金額都是 0 但有稅額 → 稅額歸「未分
   assert.strictEqual(a.未分類, 35); assert.strictEqual(Object.values(a).reduce((x, y) => x + y, 0), 35);
   assert.deepStrictEqual(calc.allocateTax(z, 0), z);
   const b = calc.allocateTax({ 食材: 100, 包材: 0, 雜貨: 0, 其他: 0, 未分類: 0 }, 7); assert.strictEqual(b.食材, 107, '有金額時照舊按比例');
+});
+
+// ============================= Eason 定案規則（2026-10-03，P3 第 1 輪審查 #1 #3 #5）=============================
+// 規則 2：損益端回 inactive:[acc_id] → 該科目金額歸入待補對照（原因「科目已停用」），/health 黃燈
+test('定案#2 停用科目：金額歸待補對照（科目已停用）、不記曾推過、/health 黃燈；科目重新啟用後下一次推送就從清單消失', async () => {
+  let inactive = ['5101'];
+  const fake = await fakeServer(() => OK({ written: ['5102'], skipped_manual: [], inactive, voided: 0 }));
+  const ol = await fakeServer(() => ({ json: { models: [] } }));
+  const t = await startApp({ cfg: { PNL_PUSH_URL: fake.url, PNL_PURCHASE_KEY: KEY, OLLAMA_URL: ol.base, LOG_DIR: tmpLog(), HEALTH_CACHE_MS: 0 } });
+  const health = async () => fetch(t.base + '/health').then((r) => r.json());
+  try {
+    const db = t.app.db; pnlFixture(db);
+    t.app.pnlPush.markDirty(c01(db), '2026-10-02', new Date().toISOString());
+    assert.strictEqual((await t.app.pnlPush.tick()).ok, 1);
+    assert.deepStrictEqual(fake.reqs[0].entries, { 5101: 707, 5102: 614 }, '照常送（對方才是白名單的裁判）');
+    assert.deepStrictEqual(db.prepare('SELECT acc_id FROM pnl_pushed ORDER BY acc_id').all().map((r) => r.acc_id), ['5102'], '停用科目沒寫進去，不記曾推過');
+    const un = unmappedReport(db, { brandId: 'C' });
+    assert.strictEqual(un.total, 230 + 707); assert.strictEqual(un.inactive_total, 707);
+    const dead = un.rows.filter((r) => r.reason === '科目已停用');
+    assert.deepStrictEqual(dead.map((r) => [r.vendor, r.category, r.amount]), [['測試肉品行', '食材', 707]]);
+    assert.strictEqual(un.rows.filter((r) => r.reason === '未對照').reduce((s, r) => s + r.amount, 0), 230);
+    let h = await health();
+    assert.strictEqual(h.status === 'green', false); assert.ok(h.reasons.some((x) => x.includes('科目已停用')), JSON.stringify(h.reasons));
+    assert.strictEqual(h.unmapped_amount, 937);
+    assert.ok(!JSON.stringify(h).includes('5101'), '/health 不含科目代號');
+    // GET /pnl-map 也看得到原因
+    const k = await tokens(t);
+    const g = await t.call('GET', '/pnl-map', { token: k.acc });
+    assert.ok(g.data.unmapped.some((r) => r.reason === '科目已停用'));
+    // 科目重新啟用：下一次推送沒有 inactive → 清單回到只剩 230
+    inactive = []; t.app.pnlPush.markDirty(c01(db), '2026-10-02', new Date().toISOString());
+    assert.strictEqual((await t.app.pnlPush.tick()).ok, 1);
+    assert.strictEqual(unmappedReport(db, { brandId: 'C' }).total, 230);
+    assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM pnl_inactive').get().c, 0);
+    h = await health(); assert.ok(!h.reasons.some((x) => x.includes('科目已停用')));
+  } finally { await t.close(); await fake.close(); await ol.close(); }
+});
+
+// 規則 3：LOCKED／BAD_INPUT 當終態
+test('定案#3 LOCKED 終態：不再重試、/health 黃燈（不轉紅）帶契約原因；新入帳／取消入帳／手動重推會重新排入', async () => {
+  let mode = 'ok';
+  const fake = await fakeServer(() => (mode === 'locked' ? { json: { ok: false, code: 'LOCKED', message: '月份已定稿' } } : OK()));
+  const ol = await fakeServer(() => ({ json: { models: [] } }));
+  const clock = { t: Date.parse('2026-10-03T00:00:00Z') };
+  const t = await startApp({ now: () => new Date(clock.t), cfg: { PNL_PUSH_URL: fake.url, PNL_PURCHASE_KEY: KEY, OLLAMA_URL: ol.base, LOG_DIR: tmpLog(), HEALTH_CACHE_MS: 0 } });
+  const health = async () => fetch(t.base + '/health').then((r) => r.json());
+  try {
+    const db = t.app.db, f = pnlFixture(db), sid = c01(db), k = await tokens(t);
+    const mark = () => t.app.pnlPush.markDirty(sid, '2026-10-02', new Date(clock.t).toISOString());
+    mark(); assert.strictEqual((await t.app.pnlPush.tick()).ok, 1);                       // 先成功推過：5101＝707、5102＝614
+    // 該月被定稿後，有遲到貨單入帳 300（食材）
+    mkSlip(db, { vendor: f.v1, date: '2026-10-20', lines: [{ item: f.hb, qty: 30, unit: '公斤', price: 10, amount: 300 }] });
+    mode = 'locked'; fake.reqs.length = 0; mark();
+    const r = await t.app.pnlPush.tick();
+    assert.strictEqual(r.terminal, 1); assert.strictEqual(r.failed, 0);
+    let row = db.prepare('SELECT * FROM pnl_outbox').get();
+    assert.strictEqual(row.state, 'locked');
+    assert.strictEqual(row.reason, '2026-10 已定稿，有新進貨 300 元未入損益，請解除定稿或手動調整');
+    assert.strictEqual(row.next_at, null); assert.strictEqual(row.first_fail_at, null);
+    // 不再重試：時間過了好幾個小時、force 也不送
+    clock.t += 5 * 3600e3; await t.app.pnlPush.tick(); await t.app.pnlPush.tick({ force: true });
+    assert.strictEqual(fake.reqs.length, 1, '終態不重試');
+    const ps = t.app.pnlPush.status();
+    assert.strictEqual(ps.pending, 0); assert.strictEqual(ps.failing_since, null); assert.strictEqual(ps.terminal.length, 1);
+    // /health：黃燈、不是紅（備份另外會紅，所以只驗損益相關原因）
+    const h = await health();
+    assert.ok(h.reasons.includes('2026-10 已定稿，有新進貨 300 元未入損益，請解除定稿或手動調整（央廚（測試））'), JSON.stringify(h.reasons));
+    assert.ok(!h.reasons.includes('損益推送失敗超過 1 小時'));
+    assert.deepStrictEqual([h.pnl.pending, h.pnl.terminal], [0, 1]);
+    // 取消入帳／新入帳（markDirty）→ 重新排入
+    mark(); row = db.prepare('SELECT * FROM pnl_outbox').get();
+    assert.deepStrictEqual([row.state, row.reason, row.attempts], [null, null, 0]);
+    mode = 'ok'; assert.strictEqual((await t.app.pnlPush.tick()).ok, 1);
+    assert.strictEqual(t.app.pnlPush.status().terminal.length, 0);
+    // 手動「重推此店此月」：再鎖一次 → 按鈕重新排入
+    mode = 'locked'; mark(); await t.app.pnlPush.tick();
+    assert.strictEqual(db.prepare('SELECT state s FROM pnl_outbox').get().s, 'locked');
+    const g = await t.call('GET', '/pnl-map', { token: k.acc });
+    assert.deepStrictEqual(g.data.stuck.map((x) => [x.month, x.state]), [['2026-10', 'locked']]);
+    assert.deepStrictEqual(g.data.stores.map((s) => s.code), ['C01']);
+    // 權限：店端 403；他牌會計 403；壞月份／不存在門市／沒設代號 400
+    assert.strictEqual((await t.call('POST', '/pnl-push/retry', { token: k.store, body: { store_id: sid, month: '2026-10' } })).status, 403);
+    assert.strictEqual((await t.call('POST', '/pnl-push/retry', { token: k.accM, body: { store_id: sid, month: '2026-10' } })).status, 403);
+    assert.strictEqual((await t.call('POST', '/pnl-push/retry', { token: k.acc, body: { store_id: sid, month: '2026-13' } })).error, 'BAD_INPUT');
+    assert.strictEqual((await t.call('POST', '/pnl-push/retry', { token: k.acc, body: { store_id: 9999, month: '2026-10' } })).error, 'BAD_INPUT');
+    const m01 = storeId(db, 'M01');
+    assert.strictEqual((await t.call('POST', '/pnl-push/retry', { token: k.admin, body: { store_id: m01, month: '2026-10' } })).error, 'BAD_INPUT', 'M01 沒設損益代號');
+    assert.strictEqual(db.prepare('SELECT state s FROM pnl_outbox').get().s, 'locked', '被拒絕的請求不動資料');
+    mode = 'ok';
+    const rt = await t.call('POST', '/pnl-push/retry', { token: k.acc, body: { store_id: sid, month: '2026-10' } });
+    assert.strictEqual(rt.ok, true, JSON.stringify(rt)); assert.strictEqual(rt.data.queued, true);
+    row = db.prepare('SELECT * FROM pnl_outbox').get();
+    assert.deepStrictEqual([row.state, row.reason, row.attempts, row.next_at], [null, null, 0, null]);
+    assert.ok(db.prepare("SELECT 1 FROM audit WHERE action = 'pnl_push_retry'").get());
+    assert.strictEqual((await t.app.pnlPush.tick()).ok, 1);
+    assert.strictEqual(t.app.pnlPush.status().terminal.length, 0);
+    // 沒有 outbox 列時按重推也會建一筆
+    assert.strictEqual(outboxCount(db), 0);
+    assert.strictEqual((await t.call('POST', '/pnl-push/retry', { token: k.admin, body: { store_id: sid, month: '2026-09' } })).ok, true);
+    assert.strictEqual(outboxCount(db), 1);
+  } finally { await t.close(); await fake.close(); await ol.close(); }
+});
+
+test('定案#3 BAD_INPUT 終態（rejected）：不再重試、黃燈帶原因；AUTH 與網路錯誤仍退避重試、不進終態', async () => {
+  let mode = 'bad';
+  const fake = await fakeServer(() => (mode === 'bad' ? { json: { ok: false, error: 'BAD_INPUT', message: '科目不合規' } } : { json: { ok: false, error: 'AUTH', message: '金鑰錯誤' } }));
+  const clock = { t: Date.parse('2026-10-03T00:00:00Z') };
+  const t = await startApp({ now: () => new Date(clock.t), cfg: { PNL_PUSH_URL: fake.url, PNL_PURCHASE_KEY: KEY } });
+  try {
+    const db = t.app.db, sid = (pnlFixture(db), c01(db));
+    t.app.pnlPush.markDirty(sid, '2026-10-02', new Date(clock.t).toISOString());
+    assert.strictEqual((await t.app.pnlPush.tick()).terminal, 1);
+    let row = db.prepare('SELECT * FROM pnl_outbox').get();
+    assert.strictEqual(row.state, 'rejected');
+    assert.ok(row.reason.startsWith('2026-10 損益端拒收（BAD_INPUT: 科目不合規）'), row.reason);
+    clock.t += 3 * 3600e3; await t.app.pnlPush.tick(); assert.strictEqual(fake.reqs.length, 1);
+    assert.strictEqual(t.app.pnlPush.status().failing_since, null, '終態不會讓 /health 轉紅');
+    // 重推後對方回 AUTH → 一般失敗、指數退避、不是終態
+    mode = 'auth'; t.app.pnlPush.retryNow(sid, '2026-10', new Date(clock.t).toISOString());
+    assert.strictEqual((await t.app.pnlPush.tick()).failed, 1);
+    row = db.prepare('SELECT * FROM pnl_outbox').get();
+    assert.deepStrictEqual([row.state, row.attempts, row.last_error], [null, 1, 'AUTH: 金鑰錯誤']);
+    assert.ok(row.next_at && Date.parse(row.next_at) - clock.t === 60e3);
+    assert.ok(t.app.pnlPush.status().failing_since, 'AUTH 持續失敗仍會走紅燈規則');
+  } finally { await t.close(); await fake.close(); }
+});
+
+test('定案#3 待撤回工作遇 LOCKED 也是終態（不無限重試）；重推可解除', async () => {
+  let locked = false;
+  const fake = await fakeServer((b) => (b.store_id === 'U-C01' && locked ? { json: { ok: false, code: 'LOCKED', message: 'x' } } : OK()));
+  const t = await startApp({ cfg: { PNL_PUSH_URL: fake.url, PNL_PURCHASE_KEY: KEY } });
+  try {
+    const db = t.app.db, k = await tokens(t), sid = (pnlFixture(db), c01(db));
+    t.app.pnlPush.markDirty(sid, '2026-10-02', new Date().toISOString()); await t.app.pnlPush.tick();
+    locked = true;
+    await t.call('PUT', `/admin/stores/${sid}`, { token: k.admin, body: { pnl_unit_code: 'U-NEW' } });
+    const r = await t.app.pnlPush.tick();
+    assert.strictEqual(r.terminal, 1);
+    assert.strictEqual(db.prepare('SELECT state s FROM pnl_retire').get().s, 'locked');
+    const n = fake.reqs.length; await t.app.pnlPush.tick({ force: true }); assert.strictEqual(fake.reqs.length, n, '撤回不再重送');
+    assert.ok(t.app.pnlPush.status().terminal.some((x) => x.kind === 'retire'));
+    locked = false; t.app.pnlPush.retryNow(sid, '2026-10', new Date().toISOString());
+    assert.strictEqual((await t.app.pnlPush.tick()).retired, 1);
+    assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM pnl_retire').get().c, 0);
+  } finally { await t.close(); await fake.close(); }
+});
+
+test('定案#3 前端：損益對照分頁有「重推此店此月」按鈕（POST /pnl-push/retry），並列出卡住的店×月', () => {
+  const ad = fs.readFileSync(path.join(__dirname, '..', 'web', 'admin.html'), 'utf8');
+  assert.ok(/重推此店此月/.test(ad) && /\/pnl-push\/retry/.test(ad) && /科目已停用|r\.reason/.test(ad));
 });

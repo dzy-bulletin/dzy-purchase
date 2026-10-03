@@ -1,7 +1,7 @@
 'use strict';
 // T20：/health。紅黃燈規則（plan.md「P3 共用契約」，判定是純函式 judge()，守門與測試共用同一份）：
 //  紅：Ollama 無回應；佇列中最舊一張等待 > 30 分鐘；備份上次成功 > 26 小時；損益推送失敗持續 > 1 小時。
-//  黃：損益推送未設定；有「待補對照」金額；有辨識失敗待處理。
+//  黃：損益推送未設定；有「待補對照」金額（含科目已停用）；損益推送終態（月份已定稿／被拒收，不再重試）；有辨識失敗待處理。
 // 回應不含任何貨單內容（只有數字、時間、固定短句）。
 const fs = require('fs');
 const path = require('path');
@@ -23,6 +23,8 @@ function judge(h, nowMs) {
   if (p.configured && p.failing_since) { const t = Date.parse(p.failing_since); if (!isNaN(t) && now - t > RULES.pnlFailRedH * H) red.push('損益推送失敗超過 1 小時'); }
   if (!p.configured) yellow.push('損益推送未設定');
   if (h.unmapped_amount > 0) yellow.push('有待補對照的金額');
+  if (h.inactive_amount > 0) yellow.push('有進貨金額歸在已停用的損益科目（待補對照：科目已停用）');
+  for (const r of (p.terminal_reasons || [])) yellow.push(r);                 // 終態（已定稿／被拒收）：不再重試，帶原因文字等人處理
   if (h.failed_count > 0) yellow.push('有辨識失敗待處理');
   return { status: red.length ? 'red' : yellow.length ? 'yellow' : 'green', reasons: red.concat(yellow) };
 }
@@ -47,7 +49,7 @@ module.exports = function register(ctx) {
   function unmappedTotal() {
     const t = Date.now();
     if (unmappedC && t - unmappedC.at < CACHE_MS) return unmappedC.v;
-    const v = P.unmappedReport(db).total; unmappedC = { at: t, v }; return v;
+    const r = P.unmappedReport(db); const v = { total: r.total, inactive: r.inactive_total }; unmappedC = { at: t, v }; return v;
   }
   route('GET', /^\/health$/, null, async ({ req, res }) => {
     const ollama = await checkOllama();
@@ -57,15 +59,15 @@ module.exports = function register(ctx) {
     const failed_count = db.prepare("SELECT COUNT(*) c FROM slips WHERE status = 'failed'").get().c;
     const needed = db.prepare("SELECT 1 FROM slips WHERE status = 'confirmed' LIMIT 1").get() ? true : false;
     const ps = pnlPush.status();
-    const unmapped_amount = unmappedTotal();
+    const um = unmappedTotal(); const unmapped_amount = um.total, inactive_amount = um.inactive;
     const body = {
       server: true, time: t.toISOString(), model: cfg.MODEL, ollama,
       queue: { waiting: q.c, oldest_min },
       backup: { last_ok_at: readBackupLast(cfg) },
-      pnl: { configured: ps.configured, last_ok_at: ps.last_ok_at, pending: ps.pending },
+      pnl: { configured: ps.configured, last_ok_at: ps.last_ok_at, pending: ps.pending, terminal: ps.terminal.length },
       unmapped_amount, failed: failed_count
     };
-    const j = judge({ ollama, queue: body.queue, backup: { last_ok_at: body.backup.last_ok_at, needed }, pnl: { configured: ps.configured, failing_since: ps.failing_since }, unmapped_amount, failed_count }, t.getTime());
+    const j = judge({ ollama, queue: body.queue, backup: { last_ok_at: body.backup.last_ok_at, needed }, pnl: { configured: ps.configured, failing_since: ps.failing_since, terminal_reasons: ps.terminal.map((x) => `${x.reason}（${x.store_name}）`) }, unmapped_amount, inactive_amount, failed_count }, t.getTime());
     // ok＝伺服器有回應（燈號看 status）；頂層回傳，守門直接讀 status
     sendJson(res, 200, Object.assign({ ok: true, status: j.status, reasons: j.reasons }, body), corsHeaders(req));
     return RAW;

@@ -64,7 +64,17 @@ const MIGRATIONS = [
   // v5（P3 審查 #2）：門市換／清空損益代號時，舊代號在損益端的機器列要先推 0 撤回——每個（店、月、舊代號）一筆待撤回工作，帶著當時推過的科目清單；成功才刪
   `CREATE TABLE pnl_retire (
      store_id INTEGER NOT NULL, month TEXT NOT NULL, unit_code TEXT NOT NULL, accs TEXT NOT NULL, created_at TEXT NOT NULL,
-     attempts INTEGER NOT NULL DEFAULT 0, next_at TEXT, first_fail_at TEXT, last_error TEXT, PRIMARY KEY (store_id, month, unit_code));`
+     attempts INTEGER NOT NULL DEFAULT 0, next_at TEXT, first_fail_at TEXT, last_error TEXT, PRIMARY KEY (store_id, month, unit_code));`,
+  // v6（P3 定案規則 #2 #3，Eason 2026-10-03）：
+  //  - outbox／retire 加終態：state＝'locked'（該月已定稿）或 'rejected'（BAD_INPUT）→ 不再自動重試，/health 黃燈帶 reason；新的入帳／取消入帳／手動重推會清掉終態重新排入
+  //  - pnl_pushed 記下每個科目最後一次成功推送的金額（分），定稿遲到時算「有新進貨 N 元未入損益」
+  //  - pnl_inactive：損益端回報「科目已停用」的 店×月×科目；這些金額歸入待補對照（原因「科目已停用」）
+  `ALTER TABLE pnl_outbox ADD COLUMN state TEXT;
+   ALTER TABLE pnl_outbox ADD COLUMN reason TEXT;
+   ALTER TABLE pnl_retire ADD COLUMN state TEXT;
+   ALTER TABLE pnl_retire ADD COLUMN reason TEXT;
+   ALTER TABLE pnl_pushed ADD COLUMN cents INTEGER NOT NULL DEFAULT 0;
+   CREATE TABLE pnl_inactive (store_id INTEGER NOT NULL, month TEXT NOT NULL, acc_id TEXT NOT NULL, PRIMARY KEY (store_id, month, acc_id));`
 ];
 
 function openDb(dataDir) {

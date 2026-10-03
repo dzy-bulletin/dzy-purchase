@@ -177,9 +177,23 @@ async function viewPnl() {
     '<div id="pmsg"></div><div class="row" style="margin-top:1rem"><button id="pnlSave" type="button" class="primary">儲存對照</button></div></div>' +
     '<div class="card" style="margin-top:1rem"><h2>待補對照</h2>' +
     (d.unmapped.length ? '<p class="muted">已入帳、但沒有對照科目的金額（含稅額分攤），合計 <b>' + fmt(d.unmapped_total) + '</b>。只列有設定損益門市代號的門市。</p>' +
-      '<div class="tblwrap"><table><thead><tr><th>門市</th><th>月份</th><th>廠商</th><th>類別</th><th class="n">金額</th></tr></thead><tbody>' +
-      d.unmapped.map(function (r) { return '<tr><td>' + esc(r.store_name) + '</td><td>' + esc(r.month) + '</td><td>' + esc(r.vendor) + '</td><td>' + esc(r.category) + (r.category === '未分類' ? ' <span class="muted">（品項還沒對到統一品名）</span>' : '') + '</td><td class="n">' + fmt(r.amount) + '</td></tr>'; }).join('') + '</tbody></table></div>'
-      : '<p class="muted">沒有待補對照的金額。</p>') + '</div>';
+      '<div class="tblwrap"><table><thead><tr><th>門市</th><th>月份</th><th>廠商</th><th>類別</th><th>原因</th><th class="n">金額</th></tr></thead><tbody>' +
+      d.unmapped.map(function (r) { return '<tr><td>' + esc(r.store_name) + '</td><td>' + esc(r.month) + '</td><td>' + esc(r.vendor) + '</td><td>' + esc(r.category) + (r.category === '未分類' ? ' <span class="muted">（品項還沒對到統一品名）</span>' : '') + '</td><td>' + esc(r.reason || '未對照') + (r.reason === '科目已停用' ? ' <span class="muted">（損益系統把那個科目停用了，請改對照或請損益系統啟用）</span>' : '') + '</td><td class="n">' + fmt(r.amount) + '</td></tr>'; }).join('') + '</tbody></table></div>'
+      : '<p class="muted">沒有待補對照的金額。</p>') + '</div>' +
+    '<div class="card" style="margin-top:1rem"><h2>損益推送重推</h2>' +
+    ((d.stuck || []).length ? '<p class="muted">下列店×月已停止自動重試（月份已定稿、或損益系統拒收）。處理好（例如請損益系統解除定稿）後按「重推」；之後有新的入帳／取消入帳也會自動重新排入。</p>' +
+      '<div class="tblwrap"><table><thead><tr><th>門市</th><th>月份</th><th>狀態</th><th>原因</th><th></th></tr></thead><tbody>' +
+      d.stuck.map(function (x) { return '<tr><td>' + esc(x.store_name) + '</td><td>' + esc(x.month) + '</td><td>' + (x.state === 'locked' ? '已定稿' : '被拒收') + '</td><td>' + esc(x.reason) + '</td><td class="n"><button class="sm" type="button" data-rs="' + x.store_id + '" data-rm="' + esc(x.month) + '">重推此店此月</button></td></tr>'; }).join('') + '</tbody></table></div>'
+      : '<p class="muted">目前沒有卡住的店×月。</p>') +
+    '<div class="row" style="margin-top:.75rem"><select id="rtStore" aria-label="門市">' + (d.stores || []).map(function (x) { return '<option value="' + x.id + '">' + esc(x.name) + '</option>'; }).join('') + '</select> ' +
+    '<input id="rtMonth" type="month" aria-label="月份"> <button id="rtGo" type="button">重推此店此月</button></div><div id="rtmsg"></div></div>';
+  async function retry(sid, month) {
+    if (!sid || !month) { $('rtmsg').innerHTML = '<div class="msg err">請選門市與月份</div>'; return; }
+    try { await Common.send('POST', '/pnl-push/retry', { store_id: +sid, month: month }); go('pnl'); msg('已排入重推（' + month + '），約一分鐘內送出', 'ok'); }
+    catch (e) { $('rtmsg').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; }
+  }
+  $('rtGo').onclick = function () { retry($('rtStore').value, $('rtMonth').value); };
+  Array.prototype.forEach.call($('body').querySelectorAll('[data-rs]'), function (b) { b.onclick = function () { retry(b.dataset.rs, b.dataset.rm); }; });
   $('pnlSave').onclick = async function () {
     var out = [];
     Array.prototype.forEach.call($('body').querySelectorAll('input[data-v]'), function (el) { var a = el.value.trim(); if (a) out.push({ vendor_id: +el.dataset.v, category: el.dataset.c, acc_id: a }); });

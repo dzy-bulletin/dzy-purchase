@@ -27,7 +27,24 @@ module.exports = function register(ctx) {
   route('GET', /^\/pnl-map$/, ['accountant', 'admin'], async ({ p, url }) => {
     const brand = brandOf(p, url.searchParams.get('brand_id') || undefined);
     const un = P.unmappedReport(db, { brandId: brand });
-    return { brand_id: brand, categories: CATEGORIES, entries: entriesOf(brand), unmapped: un.rows, unmapped_total: un.total };
+    const stores = db.prepare("SELECT id, code, name FROM stores WHERE brand_id = ? AND pnl_unit_code IS NOT NULL AND pnl_unit_code <> '' ORDER BY code").all(brand);
+    return { brand_id: brand, categories: CATEGORIES, entries: entriesOf(brand), unmapped: un.rows, unmapped_total: un.total, stores, stuck: ctx.pnlPush.terminalList(brand) };
+  });
+
+  // 手動「重推此店此月」（定案 #3）：清終態（已定稿／被拒收）與退避，重新排入；會計限本品牌的門市、admin 不限
+  route('POST', /^\/pnl-push\/retry$/, ['accountant', 'admin'], async ({ req, p }) => {
+    const b = parseJson(await readBody(req, 16 * 1024));
+    const month = String(b.month == null ? '' : b.month);
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new ApiError('BAD_INPUT', 'month 要是 YYYY-MM');
+    const store = db.prepare('SELECT id, code, brand_id, pnl_unit_code FROM stores WHERE id = ?').get(Number(b.store_id));
+    if (!store) throw new ApiError('BAD_INPUT', '找不到這間門市');
+    if (p.role === 'accountant' && store.brand_id !== p.brand_id) throw new ApiError('FORBIDDEN', '不能操作其他品牌的門市');
+    if (!store.pnl_unit_code) throw new ApiError('BAD_INPUT', '這間門市沒有設定損益門市代號，不會推送');
+    return db.tx(() => {
+      P.retryNow(db, store.id, month, iso());
+      audit(db, A.whoOf(p), 'pnl_push_retry', null, null, { store: store.code, month });
+      return { queued: true, store_id: store.id, month };
+    });
   });
 
   route('PUT', /^\/pnl-map$/, ['accountant', 'admin'], async ({ req, p }) => {
