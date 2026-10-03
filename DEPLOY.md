@@ -401,7 +401,7 @@ tailscale funnel reset; tailscale serve reset 2>/dev/null; tailscale funnel --bg
 ```sh
 export PATH="$HOME/.local/node/bin:$PATH"
 TS=$( [ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ] && echo /Applications/Tailscale.app/Contents/MacOS/Tailscale || command -v tailscale )
-H=$("$TS" status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')      # 只放在 shell 變數，不印出、不寫檔
+H=$("$TS" status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')      # 只放在 shell 變數、不寫檔；檢查全部通過後，在對話裡把 https://$H 交給 Eason（第 9 步要用）
 IP=$(dig +short "$H" @1.1.1.1 | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
 case "$IP" in
   "")    echo "✗ 公開 DNS 查不到 IPv4";;
@@ -501,7 +501,7 @@ E="$HOME/dzy-purchase/server/.env"; ls -l "$E" | cut -c1-10; grep -c '^BACKUP_KE
 
 ---
 
-## 第 8 步：【Eason 第二批｜現場驗證】一次做完
+## 第 8 步：【Eason 第三批｜現場驗證】一次做完
 
 **前置條件**：第 7 步通過、第 9 步（前端正式設定）已完成並發佈（沒發佈就用 V1～V2、V4～V5，V3 延後）。
 
@@ -511,8 +511,8 @@ E="$HOME/dzy-purchase/server/.env"; ls -l "$E" | cut -c1-10; grep -c '^BACKUP_KE
 |---|---|---|
 | V1 | 手機（已中斷 Tailscale、4G）打 `<Funnel 網址>/purchase/api/health` | 看到 `{"ok":true,"status":"yellow"…}`（黃燈＝損益推送還沒設，預期） |
 | V2 | 同一支手機打 `<Funnel 網址>/health`（**佈告欄**） | 和部署前一樣，看到 `{"ok":true,…}`；再開佈告欄網頁，公告正常載入 |
-| V3 | 手機（4G、中斷 Tailscale）開**前端網址** `https://dzy-bulletin.github.io/dzy-purchase/upload.html`，用門市 `MDGF` 登入 → 傳一張**虛構測試單**（可用 `~/dzy-purchase-demo/photos/` 底下任一張示範照片，AirDrop 到手機）→ 等狀態變「待核對」（32B 單張可能要幾分鐘）→ 電腦開會計頁用**會計 A**帳號登入：側欄上方有「目前品牌」切換（央廚／小辛辣）、切到小辛辣看得到這張 → 按「退回重拍」，原因填「部署測試」 | 一路走通；辨識結果的廠商、品項看得出是示範單；退回後門市端看到「退回」 |
-| V4 | **會計 B**（墨竹亭）登入：側欄**沒有**品牌切換；看不到 V3 那張；管理者登入管理頁看得到門市 5 間、帳號 3 個 | 是 |
+| V3 | 手機（4G、中斷 Tailscale）開**前端網址** `https://dzy-bulletin.github.io/dzy-purchase/upload.html`（會計頁 `review.html`、管理頁 `admin.html` 同一路徑），用門市 `MDGF` 登入 → 傳一張**虛構測試單**（可用 `~/dzy-purchase-demo/photos/` 底下任一張示範照片，AirDrop 到手機）→ 等狀態變「待核對」（32B 單張可能要幾分鐘）→ 電腦開會計頁用**會計 A**帳號登入：側欄上方有「目前品牌」切換（央廚／小辛辣）、切到小辛辣看得到這張 → 按「退回重拍」，原因填「部署測試」 | 一路走通；辨識結果的廠商、品項看得出是示範單；退回後門市端看到「退回」 |
+| V4 | **會計 B**（墨竹亭）登入：側欄**沒有**品牌切換；看不到 V3 那張；管理者登入管理頁 `https://dzy-bulletin.github.io/dzy-purchase/admin.html` 看得到門市 5 間、帳號 3 個 | 是 |
 | V5 | 蘋果選單 → 重新啟動 → **放手，不碰鍵盤滑鼠** → 等 3 分鐘 → 手機（4G、已中斷 Tailscale）打 `/purchase/api/health` **與** 佈告欄 `/health`。**路線 D（FileVault）**：重開後在解鎖畫面輸入部署帳號密碼，**解鎖後不必做任何事，等 3 分鐘** | 兩個都在 3 分鐘內 `{"ok":true,…}`；`status` 不是 red（Ollama 要在登入後自己起來） |
 
 **任一步 3 分鐘後打不到，照這個順序查**（能進桌面的話在同一個資料夾打 `claude --continue`，說「照 DEPLOY.md 第 8 步的診斷表查」，由 Claude 跑右欄指令）：
