@@ -7,7 +7,7 @@
 //  - 終態（Eason 定案 #3）：損益端回 LOCKED（該月已定稿）→ outbox.state＝'locked'；回 BAD_INPUT → 'rejected'；兩者都不再自動重試，
 //    /health 黃燈帶 reason；新的入帳／取消入帳（markDirty）或手動「重推」（retryNow）會清掉終態重新排入。AUTH／網路／逾時／忙碌照舊指數退避。
 //  - 停用科目（Eason 定案 #2）：損益端回 inactive:[acc_id] → 記進 pnl_inactive，這些金額歸入「待補對照」（原因「科目已停用」）
-//  - 損益端未預期例外回 INTERNAL（#12）→ 一般失敗、指數退避（不是終態）；每天 04:10（台北）對每個有損益代號的門市最近 3 個月排入一次（#13，冪等）
+//  - 損益端未預期例外回 INTERNAL（#12）→ 一般失敗、指數退避（不是終態）；每天 04:10（台北）對每個有損益代號的門市最近 3 個月排入一次（#13，冪等）；locked 終態一併清終態重送一次（#22）；未設定推送位址時不排（#26）
 //  - PNL_PUSH_URL／PNL_PURCHASE_KEY 沒設 → 不推（outbox 保留），/health 顯示「損益推送未設定」（黃）
 const calc = require('./calc');
 const { jobLog } = require('./db');
@@ -164,7 +164,11 @@ function createPnlPush(o) {
     let j; try { j = JSON.parse(text); } catch (e) { const err = new Error('NOT_JSON'); err.code = 'NOT_JSON'; throw err; }
     if (!j || j.ok !== true) {
       const c = String((j && (j.code || j.error)) || 'REJECTED').replace(/[^A-Za-z0-9_]/g, '').slice(0, 40) || 'REJECTED';
-      const err = new Error(c); err.code = c; err.msg = cleanMessage(j && j.message, cfg); throw err;
+      const err = new Error(c); err.code = c; err.msg = cleanMessage(j && j.message, cfg);
+      if (c === 'LOCKED' && j && j.live && typeof j.live === 'object' && !Array.isArray(j.live)) {     // 損益端回報該店該月各科目目前活著的進貨系統列合計（元）
+        err.live = {}; for (const [a, v] of Object.entries(j.live)) if (typeof v === 'number' && isFinite(v)) err.live[String(a).slice(0, 30)] = v;
+      }
+      throw err;
     }
     return j.data || {};
   }
@@ -186,15 +190,13 @@ function createPnlPush(o) {
   const storeName = (id) => { const s = db.prepare('SELECT name FROM stores WHERE id = ?').get(id); return s ? s.name : ''; };
 
   // 終態（定案 #3）：不再重試；ver 沒變才標（送出期間又被改 → 有新資料，留給下一輪重送，不標終態）。reason 是給 /health 的契約字樣。
-  function terminal(row, e, calcd) {
+  function terminal(row, e, calcd, delta) {
     const code = (e && e.code) || 'ERROR';
     const state = TERMINAL_CODES[code];
     let reason;
     if (state === 'locked') {
-      const pushed = db.prepare('SELECT COALESCE(SUM(cents),0) c FROM pnl_pushed WHERE store_id = ? AND month = ?').get(row.store_id, row.month).c;
-      const cur = Object.values(calcd.entries).reduce((a, b) => a + b, 0);
-      // N＝目前應推總額 − 最後一次成功推送總額（與「上次送出值」的差，含停用／被人工跳過科目的送出值）；字樣帶方向，會計才知道該加還是該減
-      const d = cur - pushed;
+      // N＝應推金額 − 損益端目前實際活著的進貨系統列合計（損益端回的 live，#23；不再用本機 pnl_pushed 記憶）；字樣帶方向，會計才知道該加還是該減
+      const d = delta || 0;
       reason = `${row.month} 已定稿（${storeName(row.store_id)}），進貨金額變動 ${d < 0 ? '−' : '+'}${yuan(Math.abs(d))} 元未反映到損益，請解除定稿或手動調整`;
     } else {
       reason = `${row.month} 損益端拒收（${code}${e && e.msg ? ': ' + e.msg : ''}），進貨金額未入損益，請檢查科目對照或損益端門市設定`;
@@ -206,13 +208,16 @@ function createPnlPush(o) {
     log(`pnl_push 終態 ${row.store_id} ${row.month} ${code}${r.changes ? '' : '（送出期間又被改，留待下一輪）'}`);
   }
 
-  // 這次要送的 entries（元）與 pnl_pushed 記著的上次成功送出值逐科目完全相同？（兩邊都空不算「相同」：沒推過就是新資料）
-  function lockedNoChange(row, entries) {
-    const pushed = db.prepare('SELECT acc_id, cents FROM pnl_pushed WHERE store_id = ? AND month = ?').all(row.store_id, row.month);
-    if (!pushed.length) return false;
-    const m = new Map(pushed.map((r) => [r.acc_id, r.cents]));
-    const keys = Object.keys(entries);
-    return keys.length === m.size && keys.every((a) => m.get(a) === Math.round(entries[a] * 100));
+  // LOCKED：用損益端回的 live 與應推金額（entries，元）逐科目比；差 ≥ 0.01 元才算有變動。回傳 null＝全部相符，否則 {delta（分，應推−live）}
+  function lockedDelta(e, entries) {
+    const live = (e && e.live) || {};
+    let delta = 0, diff = false;
+    for (const [a, v] of Object.entries(entries)) {
+      const want = Math.round(v * 100), have = Math.round((Number(live[a]) || 0) * 100);
+      if (Math.abs(want - have) >= 1) diff = true;
+      delta += want - have;
+    }
+    return diff ? { delta } : null;
   }
 
   async function pushOne(row) {
@@ -227,8 +232,10 @@ function createPnlPush(o) {
     try {
       data = await post({ action: 'purchasePush', key: cfg.PNL_PURCHASE_KEY, store_id: store.pnl_unit_code, month: row.month, entries, pending_unmapped: calc.fromCents(calcd.unmapped) });
     } catch (e) {
-      if (e && e.code === 'LOCKED' && lockedNoChange(row, entries)) {      // 已定稿月、但這次內容與上次成功推送完全相同（例如每日重送）→ 沒有新進貨，不是問題
-        drop(row); jobLog(db, 'pnl_skip', true, `store=${row.store_id} month=${row.month} 該月已定稿且金額無變動，略過`); return 'skipped';
+      if (e && e.code === 'LOCKED') {
+        const d = lockedDelta(e, entries);
+        if (!d) { drop(row); jobLog(db, 'pnl_skip', true, `store=${row.store_id} month=${row.month} 該月已定稿，損益端實際值與應推金額相符，略過`); return 'skipped'; }
+        terminal(row, e, calcd, d.delta); return 'terminal';
       }
       if (e && TERMINAL_CODES[e.code]) { terminal(row, e, calcd); return 'terminal'; }
       fail(row, e); return 'failed';
@@ -241,6 +248,7 @@ function createPnlPush(o) {
       inactive.forEach((a) => insI.run(row.store_id, row.month, a));
       const ins = db.prepare('INSERT INTO pnl_pushed (store_id, month, acc_id, cents) VALUES (?,?,?,?) ON CONFLICT(store_id, month, acc_id) DO UPDATE SET cents = excluded.cents');
       Object.keys(entries).filter((a) => !inactive.includes(a)).forEach((a) => ins.run(row.store_id, row.month, a, Math.round(entries[a] * 100)));
+      inactive.forEach((a) => db.prepare('DELETE FROM pnl_pushed WHERE store_id = ? AND month = ? AND acc_id = ?').run(row.store_id, row.month, a));   // #25：停用科目的機器列已被損益端作廢，不再記「曾推過」
       // 成功 → 重設退避狀態（ver 變了列還在時，不能把舊的失敗紀錄帶到下一輪）；沒被改過才刪
       db.prepare('UPDATE pnl_outbox SET attempts = 0, first_fail_at = NULL, last_error = NULL, next_at = NULL WHERE store_id = ? AND month = ?').run(row.store_id, row.month);
       drop(row);                                                       // ver 變了（送出期間又被改）→ 不刪，下一輪再推
@@ -277,6 +285,7 @@ function createPnlPush(o) {
   // 補上「本系統收不到事件」的情況（損益端人工列被作廢、機器值沒回來等）。冪等：已在 outbox 的不動；終態列（已定稿／被拒收）也不動
   // （只有新入帳／取消入帳／手動重推才會解除終態）；損益端同金額再推不新增。每個台北日期只做一次（記在 jobs_log，重開機不重做）。
   function dailyRefresh() {
+    if (!configured()) return 0;                                       // #26：沒設 PNL_PUSH_URL／金鑰就不排（否則 outbox 空轉累積、/health pending 虛高）
     const t = now(); const tp = new Date(t.getTime() + 8 * 3600e3);
     const today = tp.toISOString().slice(0, 10);
     if (tp.toISOString().slice(11, 16) < DAILY_AT) return 0;
@@ -288,7 +297,10 @@ function createPnlPush(o) {
     db.tx(() => {
       const ins = db.prepare('INSERT OR IGNORE INTO pnl_outbox (store_id, month, dirty_at, ver) VALUES (?,?,?,1)');
       for (const s of db.prepare("SELECT id FROM stores WHERE pnl_unit_code IS NOT NULL AND pnl_unit_code <> ''").all()) for (const m of months) n += ins.run(s.id, m, t.toISOString()).changes;
-      jobLog(db, 'pnl_daily', true, `date=${today} 排入 ${n} 筆（最近 3 個月：${months.join('、')}）`);
+      // #22：locked 終態一併清終態、重送一次（會計解除定稿→調整→再定稿後，隔天自動恢復；仍有差額的會再變回 locked、字樣刷新）。rejected 不清。
+      const rl = db.prepare("UPDATE pnl_outbox SET state = NULL, reason = NULL, attempts = 0, next_at = NULL, first_fail_at = NULL, last_error = NULL, ver = ver + 1 WHERE state = 'locked'").run().changes;
+      n += rl;
+      jobLog(db, 'pnl_daily', true, `date=${today} 排入 ${n} 筆（含 locked 終態重送 ${rl} 筆；最近 3 個月：${months.join('、')}）`);
     });
     return n;
   }
