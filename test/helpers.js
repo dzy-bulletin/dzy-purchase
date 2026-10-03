@@ -6,7 +6,7 @@ const { loadConfig } = require('../server/config');
 const { makeApp } = require('../server/index');
 const { seed } = require('../server/seed-dev');
 
-const PASS = { SEED_PASS_C01: 'pw-c01', SEED_PASS_M01: 'pw-m01', SEED_PASS_ACC_C: 'pw-accc', SEED_PASS_ACC_M: 'pw-accm', SEED_PASS_ADMIN: 'pw-admin' };
+const PASS = { SEED_PASS_C01: 'pw-c01', SEED_PASS_M01: 'pw-m01', SEED_PASS_ACC_C: 'pw-accc', SEED_PASS_ACC_M: 'pw-accm', SEED_PASS_X01: 'pw-x01', SEED_PASS_ACC_X: 'pw-accx', SEED_PASS_ADMIN: 'pw-admin' };
 const FAKE_JPG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('fake-jpeg-body')]);
 let n = 0;
 const uuid = () => { const h = (k) => Array.from({ length: k }, () => Math.floor(Math.random() * 16).toString(16)).join(''); return `${h(8)}-${h(4)}-4${h(3)}-a${h(3)}-${h(12)}`; };

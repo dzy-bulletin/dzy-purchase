@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#F3F0E8">
+<title>報表</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500&family=Noto+Serif+TC:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .filters{display:flex;gap:.8rem;flex-wrap:wrap;align-items:end;margin-bottom:1rem}
+  .filters label{min-width:150px}
+  .big{font-family:var(--serif);font-size:2.2rem;letter-spacing:.04em;font-variant-numeric:tabular-nums}
+  .cat{display:grid;grid-template-columns:5.5rem 1fr 7.5rem 4rem;gap:.8rem;align-items:center;padding:.5rem 0;border-bottom:1px solid var(--faint);font-variant-numeric:tabular-nums}
+  .cat .track{height:10px;background:var(--faint);position:relative}
+  .cat .fill{position:absolute;left:0;top:0;bottom:0;background:var(--accent)}
+  .cat.un .fill{background:var(--yellow)}
+  .cat .n{text-align:right}
+  .two{display:grid;gap:1.2rem;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  .legend{display:flex;gap:1.2rem;flex-wrap:wrap;font-size:.85rem;margin:.4rem 0}
+  .legend span{display:inline-flex;align-items:center;gap:.4rem}
+  .legend svg{width:34px;height:10px}
+  .chart{width:100%;height:auto;display:block;background:var(--surface);border:1px solid var(--line)}
+  .chart text{font-family:var(--sans);font-size:11px;fill:var(--sub)}
+  .up{color:var(--red);font-weight:500}
+  .down{color:var(--accent);font-weight:500}
+  tfoot td{border-top:1px solid var(--ink);font-weight:500}
+</style>
+</head>
+<body>
+<div id="hdr"></div>
+<section id="login" class="hidden"></section>
+<main id="app" class="page hidden">
+  <div class="tabs" id="tabs" role="tablist">
+    <button type="button" role="tab" data-t="cost">食材成本</button>
+    <button type="button" role="tab" data-t="price">單價走勢</button>
+    <button type="button" role="tab" data-t="daily">每日進貨</button>
+    <button type="button" role="tab" data-t="alerts">價格變動提醒</button>
+  </div>
+  <div id="msg"></div>
+  <div id="body"></div>
+</main>
+
+<script>window.PAGE_ROLE = 'review';</script>
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/theme.js"></script>
+<script src="js/common.js"></script>
+<script>
+'use strict';
+var TAB = 'cost';
+var STATE = { month: Common.monthNow(), store: '', from: Common.monthNow() + '-01', to: Common.today(), item: '' };
+var STORES = [];          // [{id,name}]
+var seenStores = {};      // 後備：從報表回應收集到的門市
+
+Common.gate({
+  title: '報表', nav: 'reports', roles: ['accountant', 'admin'], roleError: '這個帳號不是會計帳號',
+  loginHint: '會計與管理員登入', accLabel: '帳號',
+  onReady: async function () {
+    try {
+      var all = await Common.get('/stores');   // 會計＝自己品牌；admin 依 brand_id
+      STORES = all.filter(function (s) { return s.active !== 0 && s.active !== false; }).map(function (s) { return { id: s.id, name: s.name }; });
+    } catch (e) { STORES = []; }
+    Array.prototype.forEach.call($('tabs').querySelectorAll('button'), function (b) { b.onclick = function () { go(b.dataset.t); }; });
+    var h = (location.hash || '').slice(1);
+    go(['cost', 'price', 'daily', 'alerts'].indexOf(h) >= 0 ? h : 'cost');
+  }
+});
+function go(t) {
+  TAB = t; location.hash = t; $('msg').innerHTML = '';
+  Array.prototype.forEach.call($('tabs').querySelectorAll('button'), function (b) { var on = b.dataset.t === t; b.className = on ? 'on' : ''; b.setAttribute('aria-selected', on); });
+  ({ cost: viewCost, price: viewPrice, daily: viewDaily, alerts: viewAlerts })[t]();
+}
+function fail(e) { $('body').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; }
+function storeSel() {
+  var list = STORES.slice();
+  Object.keys(seenStores).forEach(function (id) { if (!list.some(function (s) { return String(s.id) === id; })) list.push({ id: id, name: seenStores[id] }); });
+  if (!list.length) return '';
+  return '<label class="f">門市<select id="fStore"><option value="">全部門市</option>' + list.map(function (s) { return '<option value="' + esc(s.id) + '"' + (String(s.id) === String(STATE.store) ? ' selected' : '') + '>' + esc(s.name) + '</option>'; }).join('') + '</select></label>';
+}
+function bindFilters(reload) {
+  if ($('fMonth')) $('fMonth').onchange = function () { STATE.month = this.value || Common.monthNow(); reload(); };
+  if ($('fStore')) $('fStore').onchange = function () { STATE.store = this.value; reload(); };
+}
+
+/* ---------- 食材成本 ---------- */
+async function viewCost() {
+  $('body').innerHTML = '<div class="muted">讀取中…</div>';
+  var d;
+  try { d = await Common.get('/reports/cost', { month: STATE.month, store_id: STATE.store }); } catch (e) { return fail(e); }
+  (d.by_store || []).forEach(function (s) { if (s.store_id != null) seenStores[s.store_id] = s.store; });
+  var order = ['食材', '包材', '雜貨', '其他', '未分類'], total = d.total || 0;
+  $('body').innerHTML =
+    '<div class="filters"><label class="f">月份<input id="fMonth" type="month" value="' + esc(STATE.month) + '"></label>' + storeSel() +
+    '<button id="exp" type="button" class="primary">下載會計格式 Excel</button></div><div id="expMsg"></div>' +
+    '<div class="card"><div class="muted">' + esc(STATE.month) + ' 進貨成本合計（含稅）</div><div class="big">$ ' + fmt(total) + '</div></div>' +
+    '<div class="plain"><h2>依類別</h2>' + order.map(function (k) {
+      var v = (d.by_category || {})[k] || 0, pct = total ? v / total * 100 : 0;
+      return '<div class="cat' + (k === '未分類' ? ' un' : '') + '"><span>' + k + '</span><span class="track"><span class="fill" style="width:' + pct.toFixed(1) + '%"></span></span><span class="n">$ ' + fmt(v) + '</span><span class="n muted">' + pct.toFixed(1) + '%</span></div>';
+    }).join('') + (((d.by_category || {})['未分類'] || 0) > 0 ? '<p class="y" style="margin:.6rem 0 0;font-size:.88rem">黃：有金額還沒對到統一品名，請到「核對」補對照，成本才會歸到正確類別。</p>' : '') + '</div>' +
+    '<div class="two"><div class="plain"><h2>依廠商</h2>' + table(['廠商', '金額'], (d.by_vendor || []).map(function (r) { return [esc(r.vendor), fmt(r.amount)]; })) + '</div>' +
+    '<div class="plain"><h2>依門市</h2>' + table(['門市', '金額'], (d.by_store || []).map(function (r) { return [esc(r.store), fmt(r.amount)]; })) + '</div></div>';
+  bindFilters(viewCost);
+  $('exp').onclick = doExport;
+}
+function table(heads, rows) {
+  if (!rows.length) return '<div class="muted">這個月沒有資料</div>';
+  return '<table><thead><tr>' + heads.map(function (h, i) { return '<th' + (i ? ' class="n"' : '') + '>' + h + '</th>'; }).join('') + '</tr></thead><tbody>' +
+    rows.map(function (r) { return '<tr>' + r.map(function (c, i) { return '<td' + (i ? ' class="n"' : '') + '>' + c + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>';
+}
+async function doExport() {
+  var b = $('exp'); b.disabled = true; $('expMsg').innerHTML = '<div class="msg info">產生中…</div>';
+  try {
+    var blob = await API.call('/export/legacy.xlsx' + Common.qs({ month: STATE.month, store_id: STATE.store }), { raw: true, timeout: 120000 });
+    Common.download(blob, '廠商進貨總額_' + STATE.month + '.xlsx');
+    $('expMsg').innerHTML = '<div class="msg ok">已下載 廠商進貨總額_' + esc(STATE.month) + '.xlsx</div>';
+  } catch (e) { $('expMsg').innerHTML = '<div class="msg err">下載失敗：' + esc(e.message) + '</div>'; }
+  b.disabled = false;
+}
+
+/* ---------- 單價走勢（內嵌 SVG，不載入圖表套件） ---------- */
+async function viewPrice() {
+  $('body').innerHTML = '<div class="muted">讀取中…</div>';
+  var items;
+  try { items = (await Common.get('/items')).filter(function (i) { return i.active !== 0 && i.active !== false; }); } catch (e) { return fail(e); }
+  if (!STATE.item && items.length) STATE.item = items[0].id;
+  $('body').innerHTML = '<div class="filters"><label class="f">品項<select id="fItem">' + items.map(function (i) { return '<option value="' + i.id + '"' + (String(i.id) === String(STATE.item) ? ' selected' : '') + '>' + esc(i.name) + '</option>'; }).join('') + '</select></label><span class="muted">最近 6 個月，單價為統一單位的每單位價格</span></div><div id="chartBox"></div>';
+  $('fItem').onchange = function () { STATE.item = this.value; drawPrice(); };
+  if (!items.length) { $('chartBox').innerHTML = '<div class="muted">還沒有品項</div>'; return; }
+  drawPrice();
+}
+async function drawPrice() {
+  var box = $('chartBox'); box.innerHTML = '<div class="muted">讀取中…</div>';
+  var d;
+  try { d = await Common.get('/reports/price', { item_id: STATE.item, months: 6 }); } catch (e) { box.innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; return; }
+  var pts = (d.points || []).slice().sort(function (a, b) { return a.doc_date < b.doc_date ? -1 : 1; });
+  var unit = d.base_unit || '';
+  if (!pts.length) { box.innerHTML = '<div class="plain muted">這個品項在最近 6 個月沒有已入帳、已換算的進貨資料</div>'; return; }
+  var W = 720, H = 300, L = 58, R = 16, T = 14, B = 34;
+  var t0 = Date.parse(pts[0].doc_date), t1 = Date.parse(pts[pts.length - 1].doc_date);
+  var vals = pts.map(function (p) { return p.unit_cost; });
+  if (d.avg_month != null) vals.push(d.avg_month); if (d.avg_3m != null) vals.push(d.avg_3m);
+  var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+  if (hi - lo < 0.01) { hi += 1; lo = Math.max(0, lo - 1); }
+  var pad = (hi - lo) * 0.12; lo = Math.max(0, lo - pad); hi += pad;
+  function X(t) { return t1 === t0 ? (L + (W - L - R) / 2) : L + (t - t0) / (t1 - t0) * (W - L - R); }
+  function Y(v) { return T + (hi - v) / (hi - lo) * (H - T - B); }
+  var g = '';
+  for (var i = 0; i <= 4; i++) { var v = lo + (hi - lo) * i / 4; g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(v).toFixed(1) + '" y2="' + Y(v).toFixed(1) + '" stroke="var(--faint)"/><text x="' + (L - 8) + '" y="' + (Y(v) + 4).toFixed(1) + '" text-anchor="end">' + fmt(v) + '</text>'; }
+  var nx = Math.min(5, pts.length), seen = {};
+  for (var k = 0; k < nx; k++) { var p = pts[nx === 1 ? 0 : Math.round(k * (pts.length - 1) / (nx - 1))]; if (seen[p.doc_date]) continue; seen[p.doc_date] = 1; g += '<text x="' + X(Date.parse(p.doc_date)).toFixed(1) + '" y="' + (H - 12) + '" text-anchor="middle">' + esc(p.doc_date.slice(5)) + '</text>'; }
+  g += '<line x1="' + L + '" x2="' + L + '" y1="' + T + '" y2="' + (H - B) + '" stroke="var(--line)"/><line x1="' + L + '" x2="' + (W - R) + '" y1="' + (H - B) + '" y2="' + (H - B) + '" stroke="var(--ink)"/>';
+  if (d.avg_3m != null) g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(d.avg_3m).toFixed(1) + '" y2="' + Y(d.avg_3m).toFixed(1) + '" stroke="var(--sub)" stroke-width="1.5" stroke-dasharray="2 4"/>';
+  if (d.avg_month != null) g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(d.avg_month).toFixed(1) + '" y2="' + Y(d.avg_month).toFixed(1) + '" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="8 4"/>';
+  g += '<polyline fill="none" stroke="var(--ink)" stroke-width="1.6" points="' + pts.map(function (p) { return X(Date.parse(p.doc_date)).toFixed(1) + ',' + Y(p.unit_cost).toFixed(1); }).join(' ') + '"/>';
+  g += pts.map(function (p) { return '<circle cx="' + X(Date.parse(p.doc_date)).toFixed(1) + '" cy="' + Y(p.unit_cost).toFixed(1) + '" r="4" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.6"><title>' + esc(p.doc_date + '　' + p.vendor + '　' + fmt(p.unit_cost) + ' 元／' + unit) + '</title></circle>'; }).join('');
+  box.innerHTML =
+    '<div class="legend"><span><svg viewBox="0 0 34 10"><line x1="0" x2="34" y1="5" y2="5" stroke="var(--ink)" stroke-width="1.6"/><circle cx="17" cy="5" r="3.5" fill="var(--surface)" stroke="var(--ink)"/></svg>每次進貨單價</span>' +
+    '<span><svg viewBox="0 0 34 10"><line x1="0" x2="34" y1="5" y2="5" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="8 4"/></svg>當月加權平均　<b>' + (d.avg_month == null ? '—' : fmt(d.avg_month)) + '</b></span>' +
+    '<span><svg viewBox="0 0 34 10"><line x1="0" x2="34" y1="5" y2="5" stroke="var(--sub)" stroke-width="1.5" stroke-dasharray="2 4"/></svg>3 個月加權平均　<b>' + (d.avg_3m == null ? '—' : fmt(d.avg_3m)) + '</b></span><span class="muted">單位：元／' + esc(unit) + '</span></div>' +
+    '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc((d.item && d.item.name || d.item || '') + ' 單價走勢') + '">' + g + '</svg>' +
+    '<div class="plain tblwrap" style="margin-top:1rem"><table><thead><tr><th>日期</th><th>廠商</th><th class="n">單價（元／' + esc(unit) + '）</th><th>貨單</th></tr></thead><tbody>' +
+    pts.slice().reverse().map(function (p) { return '<tr><td>' + esc(p.doc_date) + '</td><td>' + esc(p.vendor) + '</td><td class="n">' + fmt(p.unit_cost) + '</td><td class="muted">' + esc(p.slip_id) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+}
+
+/* ---------- 每日進貨明細 ---------- */
+async function viewDaily() {
+  $('body').innerHTML = '<div class="filters"><label class="f">起<input id="fFrom" type="date" value="' + esc(STATE.from) + '"></label><label class="f">迄<input id="fTo" type="date" value="' + esc(STATE.to) + '"></label>' + storeSel() + '<button id="go" type="button" class="primary">查詢</button></div><div id="dbox"></div>';
+  if ($('fStore')) $('fStore').onchange = function () { STATE.store = this.value; };
+  $('go').onclick = loadDaily; loadDaily();
+}
+async function loadDaily() {
+  STATE.from = $('fFrom').value; STATE.to = $('fTo').value;
+  var box = $('dbox');
+  if (!STATE.from || !STATE.to || STATE.from > STATE.to) { box.innerHTML = '<div class="msg err">請選好起訖日期（起不能晚於迄）</div>'; return; }
+  box.innerHTML = '<div class="muted">讀取中…</div>';
+  var rows;
+  try { rows = await Common.get('/reports/daily', { from: STATE.from, to: STATE.to, store_id: STATE.store }); } catch (e) { box.innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; return; }
+  var sum = rows.reduce(function (s, r) { return s + (r.amount || 0); }, 0);
+  box.innerHTML = rows.length ? '<div class="plain tblwrap"><table><thead><tr><th>日期</th><th>門市</th><th>廠商</th><th>統一品名</th><th>單上品名</th><th class="n">數量</th><th>單位</th><th class="n">單價</th><th class="n">金額</th><th class="n">統一單位量</th><th class="n">統一單價</th></tr></thead><tbody>' +
+    rows.map(function (r) { return '<tr><td>' + esc(r.doc_date) + '</td><td>' + esc(r.store) + '</td><td>' + esc(r.vendor) + '</td><td>' + (r.item ? esc(r.item) : '<span class="y">未對應</span>') + '</td><td>' + esc(r.raw_name) + '</td><td class="n">' + fmt(r.qty) + '</td><td>' + esc(r.unit) + '</td><td class="n">' + fmt(r.unit_price) + '</td><td class="n">' + fmt(r.amount) + '</td><td class="n">' + (r.base_qty == null ? '—' : fmt(r.base_qty)) + '</td><td class="n">' + (r.unit_cost == null ? '—' : fmt(r.unit_cost)) + '</td></tr>'; }).join('') +
+    '</tbody><tfoot><tr><td colspan="8">合計 ' + rows.length + ' 列</td><td class="n">' + fmt(r2(sum)) + '</td><td colspan="2"></td></tr></tfoot></table></div>' : '<div class="plain muted">這段期間沒有已入帳的進貨</div>';
+}
+
+/* ---------- 價格變動提醒 ---------- */
+async function viewAlerts() {
+  $('body').innerHTML = '<div class="muted">讀取中…</div>';
+  var rows;
+  try { rows = await Common.get('/alerts', { month: STATE.month }); } catch (e) { return fail(e); }
+  $('body').innerHTML = '<div class="filters"><label class="f">月份<input id="fMonth" type="month" value="' + esc(STATE.month) + '"></label><span class="muted">入帳時，同一品項單價比上一次進貨變動就會出現在這裡</span></div>' +
+    (rows.length ? '<div class="plain tblwrap"><table><thead><tr><th>時間</th><th>品項</th><th>廠商</th><th>門市</th><th class="n">上次單價</th><th class="n">本次單價</th><th>變動</th><th>貨單</th></tr></thead><tbody>' +
+      rows.map(function (a) {
+        var up = a.direction === 'up', pct = Math.abs(a.pct);
+        return '<tr><td>' + esc(twTime(a.created_at)) + '</td><td>' + esc(a.item) + '</td><td>' + esc(a.vendor) + '</td><td>' + esc(a.store) + '</td><td class="n">' + fmt(a.prev_price) + '</td><td class="n">' + fmt(a.new_price) + '</td>' +
+          '<td class="' + (up ? 'up' : 'down') + '">' + (up ? '▲ 漲 ' : '▼ 跌 ') + pct.toFixed(1) + '%</td><td class="muted">' + esc(a.slip_id) + '</td></tr>';
+      }).join('') + '</tbody></table></div>' : '<div class="plain muted">這個月沒有價格變動提醒</div>');
+  bindFilters(viewAlerts);
+}
+</script>
+</body>
+</html>

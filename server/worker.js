@@ -14,6 +14,22 @@ const PROMPT = `這是一張台灣餐廳收到的廠商貨單（出貨單／銷�
 {"vendor":"開單廠商（印在抬頭的公司名，不是客戶名稱）","date":"照單上原樣抄寫","doc_no":"單號","lines":[{"name":"品名","qty":"數量","unit":"單位","unit_price":"單價","amount":"金額"}],"subtotal":"未稅合計","tax":"稅額","total":"總計（有手寫修正就用手寫的）","handwritten_changes":"手寫修改說明"}
 所有值一律用字串（加雙引號），數字不要千分位逗號。看不清楚填空字串，不要猜。`;
 
+// 廠商記憶（spec 4.2）：同廠商最近 3 張已入帳貨單的「品名、數量、單位、單價」附在提示詞後，只當參考。
+// 沒有廠商或沒有歷史 → 原樣回傳基本提示詞。
+const EXAMPLE_SLIPS = 3, EXAMPLE_LINES = 15;
+function buildPrompt(db, brandId, vendorId) {
+  if (!vendorId) return PROMPT;
+  const slips = db.prepare("SELECT id FROM slips WHERE status = 'confirmed' AND vendor_id = ? AND brand_id = ? ORDER BY confirmed_at DESC, id DESC LIMIT ?").all(vendorId, brandId, EXAMPLE_SLIPS);
+  const blocks = [];
+  for (const s of slips) {
+    const ls = db.prepare('SELECT raw_name, qty, unit, unit_price FROM slip_lines WHERE slip_id = ? ORDER BY seq LIMIT ?').all(s.id, EXAMPLE_LINES);
+    if (!ls.length) continue;
+    blocks.push(`範例 ${blocks.length + 1}：\n` + ls.map((l) => `- ${l.raw_name}｜${l.qty == null ? '' : l.qty}${l.unit || ''}｜單價 ${l.unit_price == null ? '' : l.unit_price}`).join('\n'));
+  }
+  if (!blocks.length) return PROMPT;
+  return `${PROMPT}\n\n這家廠商最近幾張貨單的品項大致長這樣（僅供參考，以照片為準；照片上沒有的品項不要寫）：\n${blocks.join('\n')}`;
+}
+
 const MAX_EDGE = 16 * 100;   // 長邊上限（像素）
 // 長邊縮到 MAX_EDGE（macOS sips；沒有就用原圖，Ollama 自己也會縮）
 // 任何錯誤（檔案不存在、sips 壞掉…）一律 reject，不可在 callback 內丟出未捕捉的同步例外（會讓整個 process 掛掉）
@@ -39,12 +55,12 @@ function shrink(file) {
 }
 
 // 預設辨識函式：呼叫 Ollama。回傳模型的原始文字
-async function ollamaRecognize(cfg, files) {
+async function ollamaRecognize(cfg, files, prompt) {
   const images = [];
   for (const f of files) images.push((await shrink(f)).toString('base64'));
   const res = await fetch(`${cfg.OLLAMA_URL}/api/generate`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: cfg.MODEL, prompt: PROMPT, images, stream: false, format: 'json',
+    body: JSON.stringify({ model: cfg.MODEL, prompt: prompt || PROMPT, images, stream: false, format: 'json',
                            options: { temperature: 0, num_ctx: 16384, num_predict: 3000 } }),
     signal: AbortSignal.timeout(cfg.OLLAMA_TIMEOUT_MS)
   });
@@ -62,7 +78,7 @@ function parseAi(text) {
 
 function createWorker({ db, cfg, recognize, log }) {
   const say = log || (() => {});
-  const rec = recognize || ((files) => ollamaRecognize(cfg, files));
+  const rec = recognize || ((files, slip, prompt) => ollamaRecognize(cfg, files, prompt));
   let timer = null, running = false, stopped = false, kicked = false, started = false, chain = Promise.resolve(), runP = Promise.resolve();
 
   function requeueStuck() {      // 重啟時：上次當機留下的辨識中／已上傳（還沒排隊）→ 重新排隊
@@ -85,13 +101,14 @@ function createWorker({ db, cfg, recognize, log }) {
     db.tx(() => {
       const cur = db.prepare('SELECT vendor_id, vendor_name_raw FROM slips WHERE id = ?').get(slip.id);
       const shot = `${slip.id.slice(1, 5)}-${slip.id.slice(5, 7)}-${slip.id.slice(7, 9)}`;
-      const ctx = makeCtx(db, slip.brand_id, cur.vendor_id);
-      const r = postprocess(ai, shot, ctx);
+      // 先決定廠商（店員選的優先，否則用模型讀到的名稱比對），再用該廠商的品名記憶做後處理
+      const aiVendor = String(ai.vendor == null ? '' : ai.vendor).trim();
       let vendorId = cur.vendor_id, vendorRaw = cur.vendor_name_raw;
       if (!vendorId) {
-        vendorId = matchVendor(db, slip.brand_id, r.vendor_name);
-        if (!vendorId && !vendorRaw && r.vendor_name) vendorRaw = r.vendor_name;
+        vendorId = matchVendor(db, slip.brand_id, aiVendor);
+        if (!vendorId && !vendorRaw && aiVendor) vendorRaw = aiVendor;
       }
+      const r = postprocess(ai, shot, makeCtx(db, slip.brand_id, vendorId, true));
       db.prepare(`UPDATE slips SET status='review', vendor_id=?, vendor_name_raw=?, doc_date=?, doc_no=?, subtotal=?, tax=?, total=?,
                   total_handwritten=?, handwritten_note=?, flags=?, date_note=?, ai_raw=?, ai_model=?, ai_seconds=?, error=NULL WHERE id=?`)
         .run(vendorId, vendorRaw, r.doc_date, r.doc_no, r.subtotal, r.tax, r.total, r.total_handwritten, r.handwritten_note,
@@ -126,7 +143,7 @@ function createWorker({ db, cfg, recognize, log }) {
       for (let attempt = 1; attempt <= 3; attempt++) {       // 第 1 次＋重試 2 次
         const t0 = Date.now();
         try {
-          const text = await rec(files, slip);
+          const text = await rec(files, slip, buildPrompt(db, slip.brand_id, slip.vendor_id));
           saveResult(slip, text, (Date.now() - t0) / 1000);
           try { jobLog(db, 'recognize', true, `${slip.id} attempt=${attempt} ${Math.round((Date.now() - t0) / 1000)}s`); } catch (e3) { /* 已存好，記錄失敗不重來 */ }
           say(`[worker] ${slip.id} -> review (${Math.round((Date.now() - t0) / 1000)}s)`);
@@ -177,4 +194,4 @@ function createWorker({ db, cfg, recognize, log }) {
   };
 }
 
-module.exports = { createWorker, PROMPT, ollamaRecognize, parseAi, shrink };
+module.exports = { createWorker, PROMPT, buildPrompt, ollamaRecognize, parseAi, shrink };

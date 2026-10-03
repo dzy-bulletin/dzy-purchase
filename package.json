@@ -1,0 +1,23 @@
+{
+  "name": "mala-purchase",
+  "version": "1.0.0",
+  "description": "鼎兆元集團內部用：門市拍廠商貨單 → 公司 Mac mini 本機 AI 辨識 → 會計核對入帳 → 食材成本、單價走勢、推進損益系統。",
+  "main": "server/index.js",
+  "scripts": {
+    "test": "node --test",
+    "start": "node server/index.js",
+    "seed": "node server/seed-dev.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dzy-bulletin/dzy-purchase.git"
+  },
+  "type": "commonjs",
+  "dependencies": {
+    "exceljs": "^4.4.0"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  }
+}

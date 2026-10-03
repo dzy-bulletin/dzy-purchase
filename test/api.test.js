@@ -18,8 +18,8 @@ test('健康檢查、資料表數量、重啟不重建', async () => {
     assert.strictEqual(tables.length, 14);
     const { openDb } = require('../server/db');
     const again = openDb(t.dir);                                    // 同一資料夾再開一次：資料還在
-    assert.strictEqual(again.prepare('SELECT COUNT(*) c FROM stores').get().c, 2);
-    assert.strictEqual(again.prepare('PRAGMA user_version').get().user_version, 2);
+    assert.strictEqual(again.prepare('SELECT COUNT(*) c FROM stores').get().c, 3);
+    assert.strictEqual(again.prepare('PRAGMA user_version').get().user_version, 3);
     again.close();
     assert.ok((await t.call('GET', '/nope')).error === 'NOT_FOUND');
   } finally { await t.close(); }
@@ -54,7 +54,7 @@ test('門市 token 打會計 API → FORBIDDEN；/vendors 依角色回傳', asyn
     const v = await t.call('GET', '/vendors', { token: st });
     assert.strictEqual(v.data.length, 6); assert.deepStrictEqual(Object.keys(v.data[0]).sort(), ['id', 'name']);
     const adm = await t.login('admin', PASS.SEED_PASS_ADMIN);
-    assert.strictEqual((await t.call('GET', '/vendors', { token: adm })).data.length, 12);
+    assert.strictEqual((await t.call('GET', '/vendors', { token: adm })).data.length, 18);
     assert.strictEqual((await t.call('POST', '/slips', { token: await t.login('acc-c', PASS.SEED_PASS_ACC_C), raw: Buffer.from('x') })).error, 'FORBIDDEN');
   } finally { await t.close(); }
 });

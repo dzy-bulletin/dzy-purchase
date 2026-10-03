@@ -22,15 +22,16 @@ function matchVendor(db, brandId, name) {
   return null;
 }
 
-function makeCtx(db, brandId, vendorId) {
+// useAlias＝辨識當下才用廠商記憶自動帶品名；之後會計核對（recheck）只認明確的 item_id，清掉就是清掉
+function makeCtx(db, brandId, vendorId, useAlias) {
   return {
     resolveItem(line) {
       if (line.item_id) {
         const it = db.prepare('SELECT id, base_unit FROM items WHERE id = ? AND brand_id = ?').get(line.item_id, brandId);
         if (it) return it;
       }
-      if (vendorId && line.raw_name) {
-        return db.prepare('SELECT i.id, i.base_unit FROM item_aliases a JOIN items i ON i.id = a.item_id WHERE a.vendor_id = ? AND a.raw_name = ?').get(vendorId, line.raw_name) || null;
+      if (useAlias && vendorId && line.raw_name) {
+        return db.prepare('SELECT i.id, i.base_unit FROM item_aliases a JOIN items i ON i.id = a.item_id WHERE a.vendor_id = ? AND a.raw_name = ? AND i.brand_id = ? AND i.active = 1').get(vendorId, line.raw_name, brandId) || null;
       }
       return null;
     },

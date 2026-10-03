@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#F3F0E8">
+<title>設定</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500&family=Noto+Serif+TC:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .formgrid{display:grid;gap:.8rem;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));align-items:end}
+  .chkline{display:flex;align-items:center;gap:.5rem;min-height:44px;font-size:.95rem}
+  .off td{color:var(--sub)}
+  .unitrow{display:flex;gap:.6rem;align-items:end;margin-bottom:.5rem}
+  .unitrow label{flex:1}
+  .tools{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-bottom:.8rem}
+  .tools input[type=search]{max-width:260px}
+</style>
+</head>
+<body>
+<div id="hdr"></div>
+<section id="login" class="hidden"></section>
+<main id="app" class="page hidden">
+  <div class="tabs" id="tabs" role="tablist"></div>
+  <div id="msg"></div>
+  <div id="panel"></div>
+  <div id="body" class="muted">讀取中…</div>
+</main>
+
+<script>window.PAGE_ROLE = 'review';</script>
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/theme.js"></script>
+<script src="js/common.js"></script>
+<script>
+'use strict';
+var TAB = 'items';
+var SESSION = null;
+
+Common.gate({
+  title: '設定', nav: 'admin', roles: ['accountant', 'admin'], roleError: '這個帳號不是會計帳號',
+  loginHint: '會計與管理員登入', accLabel: '帳號',
+  onReady: function (s) {
+    SESSION = s;
+    var tabs = [['items', '品項'], ['vendors', '廠商']];
+    if (s.role === 'admin') tabs.push(['stores', '門市'], ['users', '帳號']);
+    $('tabs').innerHTML = tabs.map(function (t) { return '<button type="button" role="tab" data-t="' + t[0] + '">' + t[1] + '</button>'; }).join('');
+    Array.prototype.forEach.call($('tabs').querySelectorAll('button'), function (b) { b.onclick = function () { go(b.dataset.t); }; });
+    var h = (location.hash || '').slice(1);
+    go(tabs.some(function (t) { return t[0] === h; }) ? h : 'items');
+  }
+});
+function go(t) {
+  TAB = t; location.hash = t; $('panel').innerHTML = ''; $('msg').innerHTML = '';
+  Array.prototype.forEach.call($('tabs').querySelectorAll('button'), function (b) { var on = b.dataset.t === t; b.className = on ? 'on' : ''; b.setAttribute('aria-selected', on); });
+  ({ items: viewItems, vendors: viewVendors, stores: viewStores, users: viewUsers })[t]();
+}
+function msg(t, cls) { Common.showMsg('msg', t, cls); }
+
+/* ---------- 通用表單 ---------- */
+function fieldHTML(f, v) {
+  var val = v == null ? '' : v;
+  if (f.type === 'check') return '<label class="chkline"><input type="checkbox" data-k="' + f.k + '"' + (v === undefined || v === null ? (f.def ? ' checked' : '') : (v ? ' checked' : '')) + '> ' + esc(f.label) + '</label>';
+  if (f.type === 'select') return '<label class="f">' + esc(f.label) + '<select data-k="' + f.k + '">' + f.options.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (String(o[0]) === String(val) ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select></label>';
+  return '<label class="f">' + esc(f.label) + '<input data-k="' + f.k + '" type="' + (f.type || 'text') + '" value="' + (f.type === 'password' ? '' : esc(val)) + '"' + (f.ph ? ' placeholder="' + esc(f.ph) + '"' : '') + (f.type === 'password' ? ' autocomplete="new-password"' : '') + '></label>';
+}
+function readForm(fields) {
+  var o = {};
+  fields.forEach(function (f) {
+    var el = document.querySelector('#panel [data-k="' + f.k + '"]');
+    if (f.type === 'check') o[f.k] = el.checked ? 1 : 0; else o[f.k] = el.value.trim();
+  });
+  return o;
+}
+/* opts: {title, fields, value, onSave(obj), cancel} */
+function openForm(o) {
+  var v = o.value || {};
+  $('panel').innerHTML = '<div class="card"><h2>' + esc(o.title) + '</h2><div class="formgrid">' + o.fields.map(function (f) { return fieldHTML(f, v[f.k]); }).join('') + '</div>' +
+    '<div id="pmsg"></div><div class="row" style="margin-top:1rem"><button id="pSave" type="button" class="primary">儲存</button><button id="pCancel" type="button">取消</button></div></div>';
+  $('pCancel').onclick = function () { $('panel').innerHTML = ''; };
+  $('pSave').onclick = async function () {
+    var obj = readForm(o.fields);
+    try { await o.onSave(obj); $('panel').innerHTML = ''; msg('已儲存', 'ok'); go(TAB); msg('已儲存', 'ok'); }
+    catch (e) { $('pmsg').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; }
+  };
+  var first = document.querySelector('#panel input,#panel select'); if (first) first.focus();
+}
+function stateCell(a) { return a === 0 || a === false ? '<span class="muted">停用</span>' : '啟用'; }
+function isOff(a) { return a === 0 || a === false; }
+var BRAND_OPTS = [['X', '小辛辣'], ['M', '墨竹亭'], ['C', '央廚']];
+
+/* ---------- 品項 ---------- */
+var itemsAll = [];
+async function viewItems() {
+  $('body').innerHTML = '<div class="tools"><input id="q" type="search" placeholder="搜尋品項名稱" aria-label="搜尋品項"><label class="chkline"><input id="showOff" type="checkbox"> 顯示停用</label><button id="addItem" type="button" class="primary">＋ 新增品項</button></div><div class="tblwrap"><table><thead><tr><th>統一品名</th><th>類別</th><th>統一單位</th><th>狀態</th><th></th></tr></thead><tbody id="tb"></tbody></table></div>';
+  try { itemsAll = await Common.get('/items'); } catch (e) { $('body').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; return; }
+  function draw() {
+    var q = $('q').value.trim(), off = $('showOff').checked;
+    var rows = itemsAll.filter(function (it) { return (off || !isOff(it.active)) && (!q || it.name.indexOf(q) >= 0); });
+    $('tb').innerHTML = rows.length ? rows.map(function (it) {
+      return '<tr class="' + (isOff(it.active) ? 'off' : '') + '"><td>' + esc(it.name) + '</td><td>' + esc(it.category) + '</td><td>' + esc(it.base_unit) + '</td><td>' + stateCell(it.active) + '</td><td class="n" style="white-space:nowrap"><button class="sm" type="button" data-e="' + it.id + '">編輯</button> <button class="sm" type="button" data-u="' + it.id + '">單位換算</button></td></tr>';
+    }).join('') : '<tr><td colspan="5" class="muted">沒有品項</td></tr>';
+    Array.prototype.forEach.call($('tb').querySelectorAll('[data-e]'), function (b) { b.onclick = function () { editItem(itemsAll.filter(function (x) { return String(x.id) === b.dataset.e; })[0]); }; });
+    Array.prototype.forEach.call($('tb').querySelectorAll('[data-u]'), function (b) { b.onclick = function () { editUnits(itemsAll.filter(function (x) { return String(x.id) === b.dataset.u; })[0]); }; });
+  }
+  $('q').oninput = draw; $('showOff').onchange = draw; $('addItem').onclick = function () { editItem(null); };
+  draw();
+}
+function editItem(it) {
+  openForm({
+    title: it ? '編輯品項' : '新增品項', value: it || { active: 1 },
+    fields: [{ k: 'name', label: '統一品名' }, { k: 'category', label: '類別', type: 'select', options: CATS.map(function (c) { return [c, c]; }) }, { k: 'base_unit', label: '統一單位（例如 斤、包）' }, { k: 'active', label: '啟用', type: 'check', def: 1 }],
+    onSave: function (o) {
+      if (!o.name || !o.base_unit) throw new Error('請填品名與統一單位');
+      return it ? Common.send('PUT', '/items/' + it.id, o) : Common.send('POST', '/items', o);
+    }
+  });
+}
+async function editUnits(it) {
+  var list;
+  try { list = await Common.get('/items/' + it.id + '/units'); } catch (e) { msg(e.message, 'err'); return; }
+  list = list.filter(function (u) { return u.unit !== it.base_unit; });
+  function draw() {
+    $('panel').innerHTML = '<div class="card"><h2>單位換算：' + esc(it.name) + '</h2><p class="muted">統一單位是「' + esc(it.base_unit) + '」（換算固定為 1，不用填）。例：單上寫「箱」、1 箱 ＝ 12 ' + esc(it.base_unit) + '，就填 箱 → 12。</p>' +
+      list.map(function (u, i) { return '<div class="unitrow"><label class="f">單上的單位<input data-i="' + i + '" data-k="unit" value="' + esc(u.unit) + '"></label><label class="f">1 個等於幾' + esc(it.base_unit) + '<input data-i="' + i + '" data-k="factor" inputmode="decimal" value="' + esc(u.factor) + '"></label><button class="warn" type="button" data-d="' + i + '" aria-label="刪除這個單位">✕</button></div>'; }).join('') +
+      '<button id="addU" type="button">＋ 新增單位</button><div id="pmsg"></div><div class="row" style="margin-top:1rem"><button id="uSave" type="button" class="primary">儲存換算</button><button id="pCancel" type="button">關閉</button></div></div>';
+    Array.prototype.forEach.call($('panel').querySelectorAll('input[data-k]'), function (el) { el.oninput = function () { list[+el.dataset.i][el.dataset.k] = el.value; }; });
+    Array.prototype.forEach.call($('panel').querySelectorAll('[data-d]'), function (b) { b.onclick = function () { list.splice(+b.dataset.d, 1); draw(); }; });
+    $('addU').onclick = function () { list.push({ unit: '', factor: '' }); draw(); };
+    $('pCancel').onclick = function () { $('panel').innerHTML = ''; };
+    $('uSave').onclick = async function () {
+      var out = [], seen = {};
+      for (var i = 0; i < list.length; i++) {
+        var u = String(list[i].unit).trim(), f = parseFloat(list[i].factor);
+        if (!u && (list[i].factor === '' || list[i].factor == null)) continue;
+        if (!u || !(f > 0)) { $('pmsg').innerHTML = '<div class="msg err">第 ' + (i + 1) + ' 列：單位要填，換算要大於 0</div>'; return; }
+        if (u === it.base_unit) { $('pmsg').innerHTML = '<div class="msg err">「' + esc(u) + '」就是統一單位，不用設定</div>'; return; }
+        if (seen[u]) { $('pmsg').innerHTML = '<div class="msg err">單位「' + esc(u) + '」重複了</div>'; return; }
+        seen[u] = 1; out.push({ unit: u, factor: f });
+      }
+      try { var saved = await API.call('/items/' + it.id + '/units' + Common.qs({}), { method: 'PUT', body: out });
+        $('panel').innerHTML = ''; msg('「' + it.name + '」的單位換算已儲存（' + out.length + ' 筆）', 'ok'); }
+      catch (e) { $('pmsg').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; }
+    };
+  }
+  draw();
+}
+
+/* ---------- 廠商 ---------- */
+async function viewVendors() {
+  var list; try { list = await Common.get('/vendors', { all: 1 }); } catch (e) { $('body').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; return; }
+  $('body').innerHTML = '<div class="tools"><button id="add" type="button" class="primary">＋ 新增廠商</button></div><div class="tblwrap"><table><thead><tr><th>廠商名稱</th><th>狀態</th><th></th></tr></thead><tbody>' +
+    (list.length ? list.map(function (v) { return '<tr class="' + (isOff(v.active) ? 'off' : '') + '"><td>' + esc(v.name) + '</td><td>' + stateCell(v.active) + '</td><td class="n"><button class="sm" type="button" data-e="' + v.id + '">編輯</button></td></tr>'; }).join('') : '<tr><td colspan="3" class="muted">還沒有廠商</td></tr>') + '</tbody></table></div>';
+  function edit(v) {
+    openForm({ title: v ? '編輯廠商' : '新增廠商', value: v || { active: 1 }, fields: [{ k: 'name', label: '廠商名稱' }, { k: 'active', label: '啟用', type: 'check', def: 1 }],
+      onSave: function (o) { if (!o.name) throw new Error('請填廠商名稱'); return v ? Common.send('PUT', '/vendors/' + v.id, o) : Common.send('POST', '/vendors', o); } });
+  }
+  $('add').onclick = function () { edit(null); };
+  Array.prototype.forEach.call($('body').querySelectorAll('[data-e]'), function (b) { b.onclick = function () { edit(list.filter(function (x) { return String(x.id) === b.dataset.e; })[0]); }; });
+}
+
+/* ---------- 門市（admin） ---------- */
+async function viewStores() {
+  var list; try { list = await API.call('/admin/stores'); } catch (e) { $('body').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; return; }
+  $('body').innerHTML = '<div class="tools"><button id="add" type="button" class="primary">＋ 新增門市</button></div><div class="tblwrap"><table><thead><tr><th>代號</th><th>名稱</th><th>品牌</th><th>狀態</th><th></th></tr></thead><tbody>' +
+    list.map(function (s) { return '<tr class="' + (isOff(s.active) ? 'off' : '') + '"><td>' + esc(s.code) + '</td><td>' + esc(s.name) + '</td><td>' + esc(BRAND_NAME[s.brand_id] || s.brand_id) + '</td><td>' + stateCell(s.active) + '</td><td class="n"><button class="sm" type="button" data-e="' + s.id + '">編輯</button></td></tr>'; }).join('') + '</tbody></table></div>';
+  function edit(s) {
+    openForm({ title: s ? '編輯門市' : '新增門市', value: s || { active: 1, brand_id: 'X' },
+      fields: [{ k: 'code', label: '門市代號（X01／M03／C01）' }, { k: 'name', label: '門市名稱' }, { k: 'brand_id', label: '品牌', type: 'select', options: BRAND_OPTS }, { k: 'active', label: '啟用', type: 'check', def: 1 }, { k: 'password', label: '密碼', type: 'password', ph: s ? '留空＝不修改' : '' }],
+      onSave: function (o) {
+        o.code = o.code.toUpperCase();
+        if (!/^[XMC]\d{2}$/.test(o.code)) throw new Error('門市代號格式：品牌字首（X／M／C）加 2 位數字');
+        if (!o.name) throw new Error('請填門市名稱');
+        if (!o.password) delete o.password; else if (o.password.length < 4) throw new Error('密碼至少 4 碼');
+        if (!s && !o.password) throw new Error('新增門市要設定密碼');
+        return s ? API.call('/admin/stores/' + s.id, { method: 'PUT', body: o }) : API.call('/admin/stores', { method: 'POST', body: o });
+      } });
+  }
+  $('add').onclick = function () { edit(null); };
+  Array.prototype.forEach.call($('body').querySelectorAll('[data-e]'), function (b) { b.onclick = function () { edit(list.filter(function (x) { return String(x.id) === b.dataset.e; })[0]); }; });
+}
+
+/* ---------- 帳號（admin） ---------- */
+async function viewUsers() {
+  var list; try { list = await API.call('/admin/users'); } catch (e) { $('body').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; return; }
+  var ROLE = { accountant: '會計', admin: '管理員' };
+  $('body').innerHTML = '<div class="tools"><button id="add" type="button" class="primary">＋ 新增帳號</button></div><div class="tblwrap"><table><thead><tr><th>帳號</th><th>姓名</th><th>角色</th><th>品牌</th><th>狀態</th><th></th></tr></thead><tbody>' +
+    list.map(function (u) { return '<tr class="' + (isOff(u.active) ? 'off' : '') + '"><td>' + esc(u.username) + '</td><td>' + esc(u.name) + '</td><td>' + esc(ROLE[u.role] || u.role) + '</td><td>' + esc(BRAND_NAME[u.brand_id] || '—') + '</td><td>' + stateCell(u.active) + '</td><td class="n"><button class="sm" type="button" data-e="' + u.id + '">編輯</button></td></tr>'; }).join('') + '</tbody></table></div>';
+  function edit(u) {
+    openForm({ title: u ? '編輯帳號' : '新增帳號', value: u || { active: 1, role: 'accountant', brand_id: 'X' },
+      fields: [{ k: 'username', label: '帳號' }, { k: 'name', label: '姓名' }, { k: 'role', label: '角色', type: 'select', options: [['accountant', '會計'], ['admin', '管理員']] },
+        { k: 'brand_id', label: '品牌（會計必填）', type: 'select', options: [['', '（無）']].concat(BRAND_OPTS) }, { k: 'active', label: '啟用', type: 'check', def: 1 }, { k: 'password', label: '密碼', type: 'password', ph: u ? '留空＝不修改' : '' }],
+      onSave: function (o) {
+        if (!o.username || !o.name) throw new Error('請填帳號與姓名');
+        if (o.role === 'accountant' && !o.brand_id) throw new Error('會計帳號要選品牌');
+        if (o.role === 'admin') o.brand_id = null; else if (!o.brand_id) o.brand_id = null;
+        if (!o.password) delete o.password; else if (o.password.length < 4) throw new Error('密碼至少 4 碼');
+        if (!u && !o.password) throw new Error('新增帳號要設定密碼');
+        return u ? API.call('/admin/users/' + u.id, { method: 'PUT', body: o }) : API.call('/admin/users', { method: 'POST', body: o });
+      } });
+  }
+  $('add').onclick = function () { edit(null); };
+  Array.prototype.forEach.call($('body').querySelectorAll('[data-e]'), function (b) { b.onclick = function () { edit(list.filter(function (x) { return String(x.id) === b.dataset.e; })[0]); }; });
+}
+</script>
+</body>
+</html>

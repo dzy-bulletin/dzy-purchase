@@ -3,63 +3,66 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#F3F0E8">
 <title>貨單上傳</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500&family=Noto+Serif+TC:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <style>
+  /* 手機上傳頁：字大、按鈕 >= 44px（這裡一律 52px） */
+  :root{--fs:18px}
   .wrap{max-width:560px;margin:0 auto;padding:0 1rem 4rem;overflow-x:hidden}
-  #login{max-width:420px;margin:2rem auto;padding:0 1rem}
-  #login label{display:block;margin:.8rem 0 .2rem;font-weight:600}
+  #login{overflow-x:hidden}
+  .hdr{padding:.5rem 1rem}
+  .hdr .ttl{font-size:1.05rem;letter-spacing:.1em}
+  @media (max-width:520px){.hdr .who{display:none}}
+  .hdr .logos img{height:30px}
+  .stack button,.bigbtn{min-height:52px;font-size:1rem}
+  select,input{min-height:52px;font-size:1rem}
   .thumbs{display:flex;gap:.5rem;flex-wrap:wrap;margin:.6rem 0}
-  .thumb{position:relative;width:84px;height:84px;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+  .thumb{position:relative;width:84px;height:84px;border:1px solid var(--line);overflow:hidden;border-radius:var(--radius)}
   .thumb img{width:100%;height:100%;object-fit:cover}
-  .thumb button{position:absolute;top:0;right:0;min-height:30px;width:30px;padding:0;border-radius:0 0 0 8px;background:rgba(0,0,0,.65);color:#fff;border:0}
+  .thumb button{position:absolute;top:0;right:0;min-height:44px;width:44px;padding:0;border:0;border-radius:0;background:rgba(0,0,0,.65);color:#fff;font-size:.9rem}
   .pending{display:flex;align-items:center;gap:.5rem;justify-content:space-between}
-  .slip{border-top:1px solid var(--line);padding:.7rem 0}
+  .slip{border-top:1px solid var(--faint);padding:.7rem 0}
   .slip:first-child{border-top:0}
-  .slip.ret{background:var(--red-bg);border:2px solid var(--red);border-radius:10px;padding:.7rem;margin:.5rem 0}
+  .slip.ret{background:var(--red-bg);border:1px solid var(--red);border-left:4px solid var(--red);padding:.7rem;margin:.5rem 0}
   .slip .t{word-break:break-all}
   .bigbtn{width:100%;margin-top:.5rem}
+  .step{display:flex;align-items:baseline;gap:.6rem}
+  .step b{font-family:var(--serif);font-size:1.5rem;font-weight:400;color:var(--accent)}
 </style>
 </head>
 <body>
-<section id="login" class="hidden">
-  <h1>貨單上傳</h1>
-  <p class="muted">請用門市代號登入（例如 X01）</p>
-  <label for="acc">門市代號</label>
-  <input id="acc" autocomplete="username" autocapitalize="characters" inputmode="text">
-  <label for="pw">密碼</label>
-  <input id="pw" type="password" autocomplete="current-password">
-  <div id="loginMsg"></div>
-  <button id="loginBtn" class="primary bigbtn">登入</button>
-</section>
+<div id="hdr"></div>
+<section id="login" class="hidden"></section>
 
 <section id="app" class="hidden">
-  <div class="top"><h1 id="who">貨單上傳</h1><button id="logout">登出</button></div>
   <div class="wrap">
     <div id="pendingBar" class="msg info pending hidden">
-      <span id="pendingText"></span><button id="retryNow">立即補傳</button>
+      <span id="pendingText"></span><button id="retryNow" type="button">立即補傳</button>
     </div>
     <div id="msg"></div>
 
-    <div class="card">
-      <h2>1. 選廠商</h2>
-      <select id="vendorSel"></select>
+    <div class="card stack">
+      <div class="step"><b>1</b><h2 style="margin:0">選廠商</h2></div>
+      <select id="vendorSel" aria-label="廠商" style="margin-top:.5rem"></select>
       <input id="vendorName" class="hidden" placeholder="請輸入廠商名稱" style="margin-top:.5rem">
-      <h2 style="margin-top:1rem">2. 拍貨單</h2>
+      <div class="step" style="margin-top:1.2rem"><b>2</b><h2 style="margin:0">拍貨單</h2></div>
       <p class="muted">長單可拍多張，會算同一張貨單。</p>
       <input id="cam" type="file" accept="image/*" capture="environment" class="hidden">
       <input id="pick" type="file" accept="image/*" multiple class="hidden">
       <div class="row">
-        <button id="camBtn" class="primary grow">拍照</button>
-        <button id="pickBtn" class="grow">從相簿選</button>
+        <button id="camBtn" type="button" class="primary grow">拍照</button>
+        <button id="pickBtn" type="button" class="grow">從相簿選</button>
       </div>
       <div id="thumbs" class="thumbs"></div>
-      <button id="sendBtn" class="good bigbtn" disabled>送出這張貨單</button>
+      <button id="sendBtn" type="button" class="good bigbtn" disabled>送出這張貨單</button>
     </div>
 
-    <div class="card">
-      <div class="row"><h2 class="grow">我的上傳</h2><button id="refresh">重新整理</button></div>
-      <div id="mine" class="muted">讀取中…</div>
+    <div class="plain">
+      <div class="row"><h2 class="grow" style="margin:0">我的上傳</h2><button id="refresh" type="button">重新整理</button></div>
+      <div id="mine" class="muted" style="margin-top:.5rem">讀取中…</div>
     </div>
     <p class="muted" style="text-align:center">v<span id="ver"></span></p>
   </div>
@@ -68,9 +71,10 @@
 <script>window.PAGE_ROLE = 'store';</script>
 <script src="js/config.js"></script>
 <script src="js/api.js"></script>
+<script src="js/theme.js"></script>
+<script src="js/common.js"></script>
 <script>
 'use strict';
-var $ = function (id) { return document.getElementById(id); };
 var STATUS_TEXT = { uploaded: '已送出', queued: '排隊中', recognizing: '辨識中', review: '待核對', confirmed: '已入帳', failed: '辨識失敗', returned: '退回重拍' };
 var staged = [];   // [{blob, url}]
 var flushing = false;
@@ -110,8 +114,7 @@ function uuid4() {
   var h = Array.prototype.map.call(b, function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
   return h.replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5');
 }
-function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
-function showMsg(text, cls) { $('msg').innerHTML = text ? '<div class="msg ' + (cls || 'info') + '">' + esc(text) + '</div>' : ''; }
+function showMsg(text, cls) { Common.showMsg('msg', text, cls); }
 
 function resize(file) {   // 長邊 2400px、JPEG 0.85
   return new Promise(function (res, rej) {
@@ -127,24 +130,6 @@ function resize(file) {   // 長邊 2400px、JPEG 0.85
     img.src = url;
   });
 }
-
-/* ---------- 登入 ---------- */
-function showLogin() { $('app').classList.add('hidden'); $('login').classList.remove('hidden'); }
-function showApp() {
-  var s = API.session();
-  $('login').classList.add('hidden'); $('app').classList.remove('hidden');
-  $('who').textContent = '貨單上傳　' + (s.name || s.store_id || '');
-  $('ver').textContent = CFG.VERSION;
-  loadVendors(); loadMine(); updatePending(); flush();
-}
-API.onUnauthorized = showLogin;
-$('loginBtn').onclick = async function () {
-  $('loginMsg').innerHTML = '';
-  try { await API.login($('acc').value.trim().toUpperCase(), $('pw').value); $('pw').value = ''; showApp(); }
-  catch (e) { $('loginMsg').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; }
-};
-$('pw').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('loginBtn').click(); });
-$('logout').onclick = function () { API.logout(); showLogin(); };
 
 /* ---------- 廠商 ---------- */
 async function loadVendors() {
@@ -271,7 +256,13 @@ async function loadMine() {
 }
 $('refresh').onclick = loadMine;
 
-if (API.session()) showApp(); else showLogin();
+Common.gate({
+  title: '貨單上傳', roles: ['store'], roleError: '請用門市代號登入', upper: true,
+  loginHint: '請用門市代號登入（例如 X01）', accLabel: '門市代號',
+  who: function (s) { return s.name || s.store_id || ''; },
+  previewBrand: function (v) { var c = (v || '').charAt(0).toUpperCase(); return THEMES[c] && c !== '_' ? c : null; },
+  onReady: function () { $('ver').textContent = CFG.VERSION; loadVendors(); loadMine(); updatePending(); flush(); }
+});
 </script>
 </body>
 </html>

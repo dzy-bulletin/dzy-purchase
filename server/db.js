@@ -48,7 +48,11 @@ const MIGRATIONS = [
   CREATE TABLE audit (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, who TEXT NOT NULL, action TEXT NOT NULL, slip_id TEXT, before TEXT, after TEXT);
   CREATE TABLE jobs_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, job TEXT NOT NULL, ok INTEGER NOT NULL, detail TEXT);
   `,
-  `ALTER TABLE slips ADD COLUMN date_note TEXT;`
+  `ALTER TABLE slips ADD COLUMN date_note TEXT;`,
+  // v3（P2）：品名表可停用、報表與提醒用的索引
+  `ALTER TABLE items ADD COLUMN active INTEGER NOT NULL DEFAULT 1;
+   CREATE INDEX idx_lines_item ON slip_lines(item_id);
+   CREATE INDEX idx_alerts_line ON price_alerts(line_id);`
 ];
 
 function openDb(dataDir) {

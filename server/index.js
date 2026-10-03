@@ -9,7 +9,8 @@ const { loadConfig } = require('./config');
 const { openDb, audit, jobLog, nowIso } = require('./db');
 const A = require('./auth');
 const { ApiError, sendJson, readBody, parseMultipart } = require('./http-util');
-const { evaluate, parseNum, parseDate, parseManualDate, round2, hasRed } = require('./postprocess');
+const { evaluate, parseNum, parseManualDate, hasRed } = require('./postprocess');
+const calc = require('./calc');
 const { createWorker } = require('./worker');
 const { photoFile, matchVendor, makeCtx } = require('./slips-common');
 
@@ -126,10 +127,17 @@ function makeApp(cfg, opts) {
   });
   route('POST', /^\/logout$/, ['store', 'accountant', 'admin'], async ({ p }) => { A.logout(db, p); return {}; });
 
-  route('GET', /^\/vendors$/, ['store', 'accountant', 'admin'], async ({ p }) => {
-    const rows = p.role === 'admin'
-      ? db.prepare('SELECT id, name, brand_id FROM vendors WHERE active = 1 ORDER BY brand_id, name').all()
-      : db.prepare('SELECT id, name, brand_id FROM vendors WHERE active = 1 AND brand_id = ? ORDER BY name').all(p.brand_id);
+  route('GET', /^\/vendors$/, ['store', 'accountant', 'admin'], async ({ p, url }) => {
+    const all = url.searchParams.get('all') === '1';
+    if (all && p.role === 'store') throw new ApiError('FORBIDDEN', '這個帳號沒有權限做這件事');
+    const act = all ? '' : ' AND active = 1';
+    let rows;
+    if (p.role === 'admin') {
+      const b = url.searchParams.get('brand_id');
+      rows = b ? db.prepare(`SELECT id, name, brand_id, active FROM vendors WHERE brand_id = ?${act} ORDER BY name`).all(b)
+               : db.prepare(`SELECT id, name, brand_id, active FROM vendors WHERE 1 = 1${act} ORDER BY brand_id, name`).all();
+    } else rows = db.prepare(`SELECT id, name, brand_id, active FROM vendors WHERE brand_id = ?${act} ORDER BY name`).all(p.brand_id);
+    if (all) return rows.map((v) => ({ id: v.id, name: v.name, brand_id: v.brand_id, active: v.active ? 1 : 0 }));
     return rows.map((v) => (p.role === 'admin' ? { id: v.id, name: v.name, brand_id: v.brand_id } : { id: v.id, name: v.name }));
   });
 
@@ -321,6 +329,13 @@ function makeApp(cfg, opts) {
     if (miss >= 0) throw new ApiError('BAD_INPUT', `第 ${miss + 1} 列的數量、單價、金額都要填`);
     if (r.lines.some((l) => !l.checked)) throw new ApiError('CONFLICT', '還有明細列沒打勾');
     db.prepare("UPDATE slips SET status='confirmed', confirmed_at=?, confirmed_by=? WHERE id=?").run(isoNow(), A.whoOf(p), s.id);
+    // 廠商記憶：有對到統一品名的列，記下「廠商＋原始寫法 → 品名」；再算價格變動提醒（先清掉舊的，避免重複）
+    if (cur.vendor_id) {
+      const up = db.prepare('INSERT OR REPLACE INTO item_aliases (vendor_id, raw_name, item_id) VALUES (?,?,?)');
+      for (const l of r.lines) if (l.item_id && l.raw_name) up.run(cur.vendor_id, l.raw_name, l.item_id);
+    }
+    calc.clearPriceAlerts(db, s.id);
+    calc.generatePriceAlerts(db, s.id, isoNow());
     audit(db, A.whoOf(p), 'confirm', s.id, before, snapshot(slipRow(s.id)));
     return detail(slipRow(s.id));
   }));
@@ -333,6 +348,7 @@ function makeApp(cfg, opts) {
       if (s.status !== 'confirmed') throw new ApiError('CONFLICT', '只有已入帳的貨單可以取消入帳');
       if (!reason) throw new ApiError('BAD_INPUT', '取消入帳必須寫原因');
       const before = snapshot(s);
+      calc.clearPriceAlerts(db, s.id);                                   // 取消入帳 → 撤銷這張產生的價格提醒
       db.prepare("UPDATE slips SET status='review', confirmed_at=NULL, confirmed_by=NULL WHERE id=?").run(s.id);
       audit(db, A.whoOf(p), 'unconfirm', s.id, before, Object.assign(snapshot(slipRow(s.id)), { reason }));
       return detail(slipRow(s.id));
@@ -382,6 +398,11 @@ function makeApp(cfg, opts) {
     try { const o = JSON.parse(buf.toString('utf8')); if (o && typeof o === 'object' && !Array.isArray(o)) return o; } catch (e) { /* fallthrough */ }
     throw new ApiError('BAD_INPUT', '請求內容不是 JSON 物件');
   }
+
+  // ---------- P2：管理、基本資料、報表 ----------
+  const rctx = { route, db, A, now, readBody, parseJson, RAW, corsHeaders };
+  require('./master')(rctx);
+  require('./reports')(rctx);
 
   // ---------- 派送 ----------
   async function handle(req, res) {

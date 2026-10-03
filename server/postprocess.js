@@ -62,7 +62,7 @@ function parseManualDate(raw) {
   const t = raw.trim();
   let m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t), y;
   if (m) y = Number(m[1]);
-  else if ((m = /^(\d{3})([-/])(\d{1,2})\2(\d{1,2})$/.exec(t))) { y = Number(m[1]) + 1911; m = [null, null, m[3], m[4]]; }
+  else if ((m = /^(\d{3})([-/])(\d{2})\2(\d{2})$/.exec(t))) { y = Number(m[1]) + 1911; m = [null, null, m[3], m[4]]; }
   else return null;
   const mo = Number(m[2]), d = Number(m[3]);
   if (y < 2000 || y > 2100 || !validYmd(y, mo, d)) return null;
@@ -91,7 +91,7 @@ function evaluate(slip, lines, ctx) {
     const item = resolve(l);
     if (!item) f.add('ITEM_UNMAPPED');
     else if (l.unit && item.base_unit && l.unit !== item.base_unit && !hasConv(item.id, l.unit)) f.add('UNIT_UNCONVERTED');
-    return Object.assign({}, l, { flags: sortFlags(f) });
+    return Object.assign({}, l, { item_id: l.item_id != null ? l.item_id : (item ? item.id : null), flags: sortFlags(f) });
   });
   const sf = new Set();
   for (const k of STICKY_SLIP) if ((slip.flags || []).includes(k)) sf.add(k);
