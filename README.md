@@ -12,4 +12,6 @@
 - 上傳防重複：同一批照片只產生一次 client_id（`web/upload.html` 的 batchCid），送出鈕處理中 disable；即使連點，後端同 client_id 只會有一筆。
 - 數量、單價、金額、總額必須大於 0（P1 不支援退貨負數）；入帳要求總額與每列數量／單價／金額都有值。
 - 「退回重拍」的貨單會計不能直接改，需先 `POST /slips/:id/reopen`（保留退回原因、寫 audit）。
+- 「辨識失敗」的貨單會計可 `POST /slips/:id/retry`（會計／admin，同品牌，僅 failed 可用）：回到排隊、重試次數歸零、清除錯誤、寫 audit `retry`。
+- 會計在核對畫面輸入的日期只收 `YYYY-MM-DD` 與民國 `YYY-MM-DD`／`YYY/MM/DD`，其他回 BAD_INPUT「日期格式看不懂，請重新輸入」；儲存送出的日期視為人工確認，移除 DATE_FIXED。總額規則：各列金額加總＋稅額（空白＝0）＝總額，未稅合計只核對（前後端共用 `web/js/rules.js`）。
 - 辨識單次逾時 `OLLAMA_TIMEOUT_S`（預設 300 秒，可設小數）。

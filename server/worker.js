@@ -93,9 +93,9 @@ function createWorker({ db, cfg, recognize, log }) {
         if (!vendorId && !vendorRaw && r.vendor_name) vendorRaw = r.vendor_name;
       }
       db.prepare(`UPDATE slips SET status='review', vendor_id=?, vendor_name_raw=?, doc_date=?, doc_no=?, subtotal=?, tax=?, total=?,
-                  total_handwritten=?, handwritten_note=?, flags=?, ai_raw=?, ai_model=?, ai_seconds=?, error=NULL WHERE id=?`)
+                  total_handwritten=?, handwritten_note=?, flags=?, date_note=?, ai_raw=?, ai_model=?, ai_seconds=?, error=NULL WHERE id=?`)
         .run(vendorId, vendorRaw, r.doc_date, r.doc_no, r.subtotal, r.tax, r.total, r.total_handwritten, r.handwritten_note,
-             JSON.stringify(r.flags), text, cfg.MODEL, Math.round(seconds * 10) / 10, slip.id);
+             JSON.stringify(r.flags), r.date_note, text, cfg.MODEL, Math.round(seconds * 10) / 10, slip.id);
       db.prepare('DELETE FROM slip_lines WHERE slip_id = ?').run(slip.id);
       const ins = db.prepare('INSERT INTO slip_lines (slip_id, seq, raw_name, item_id, qty, unit, unit_price, amount, flags, checked, edited_by_human) VALUES (?,?,?,?,?,?,?,?,?,0,0)');
       for (const l of r.lines) ins.run(slip.id, l.seq, l.raw_name, l.item_id, l.qty, l.unit, l.unit_price, l.amount, JSON.stringify(l.flags));

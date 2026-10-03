@@ -9,7 +9,7 @@ const { loadConfig } = require('./config');
 const { openDb, audit, jobLog, nowIso } = require('./db');
 const A = require('./auth');
 const { ApiError, sendJson, readBody, parseMultipart } = require('./http-util');
-const { evaluate, parseNum, parseDate, round2, hasRed } = require('./postprocess');
+const { evaluate, parseNum, parseDate, parseManualDate, round2, hasRed } = require('./postprocess');
 const { createWorker } = require('./worker');
 const { photoFile, matchVendor, makeCtx } = require('./slips-common');
 
@@ -49,14 +49,8 @@ function makeApp(cfg, opts) {
     if (mode === 'nonneg' ? n < 0 : n <= 0) throw new ApiError('BAD_INPUT', `${field} 必須${mode === 'nonneg' ? '大於或等於' : '大於'} 0`);
     return n;
   };
-  // DATE_FIXED 的如實說明：讀不出來 vs 離拍照日太遠（由 ai_raw 判斷）
-  function dateNote(s) {
-    if (!parseFlags(s.flags).includes('DATE_FIXED')) return null;
-    let raw = null; try { raw = JSON.parse(s.ai_raw || 'null'); } catch (e) { /* ignore */ }
-    if (raw && typeof raw === 'object' && !parseDate(raw.date)) return '日期讀不出，暫用拍照日';
-    if (raw && typeof raw === 'object' && s.doc_date === `${s.id.slice(1, 5)}-${s.id.slice(5, 7)}-${s.id.slice(7, 9)}`) return '日期的月日在拍照年與前一年都不存在（例如 2/29），暫用拍照日';
-    return '年份離拍照日太遠，已改用拍照日附近的年份';
-  }
+  // DATE_FIXED 的說明：存實際原因（date_note 欄位），旗標在才顯示
+  const dateNote = (s) => (parseFlags(s.flags).includes('DATE_FIXED') ? (s.date_note || '日期已自動補上，請對照照片確認') : null);
 
   function slipRow(id) {
     const s = db.prepare('SELECT * FROM slips WHERE id = ?').get(id);
@@ -250,17 +244,13 @@ function makeApp(cfg, opts) {
         }
       }
       if (b.doc_date !== undefined) {
-        // 入庫前一律正規化成 YYYY-MM-DD（民國年、斜線、點都收）；解析不出來（或年份離譜）就用拍照日並標 DATE_FIXED
-        let nd = null, fixed = false;
-        if (b.doc_date !== null) {
-          const d = parseDate(b.doc_date);
-          if (d && d.y >= 2000 && d.y <= 2100) nd = `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`;
-          else { nd = `${s.id.slice(1, 5)}-${s.id.slice(5, 7)}-${s.id.slice(7, 9)}`; fixed = true; }
-        }
+        // 人工輸入日期：只收 YYYY-MM-DD／民國 YYY-MM-DD／YYY/MM/DD；其他一律 BAD_INPUT，不得改成拍照日。
+        // 會計送出的日期（即使等於系統補的值）視為人工確認，移除 DATE_FIXED。
+        const nd = parseManualDate(b.doc_date);
+        if (!nd) throw new ApiError('BAD_INPUT', '日期格式看不懂，請重新輸入');
         set.doc_date = nd;
-        const fl = parseFlags(s.flags).filter((f) => f !== 'DATE_FIXED');
-        if (fixed) fl.push('DATE_FIXED');
-        if (fixed || nd !== s.doc_date) set.flags = JSON.stringify(fl);
+        set.flags = JSON.stringify(parseFlags(s.flags).filter((f) => f !== 'DATE_FIXED'));
+        set.date_note = null;
       }
       if (b.doc_no !== undefined) set.doc_no = b.doc_no == null ? null : String(b.doc_no).slice(0, 60);
       if (b.total !== undefined) set.total = num(b.total, 'total', 'pos');

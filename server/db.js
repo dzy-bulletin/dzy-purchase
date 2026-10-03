@@ -47,7 +47,8 @@ const MIGRATIONS = [
     prev_price REAL, new_price REAL, pct REAL, direction TEXT CHECK (direction IN ('up','down')), created_at TEXT, notified_at TEXT);
   CREATE TABLE audit (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, who TEXT NOT NULL, action TEXT NOT NULL, slip_id TEXT, before TEXT, after TEXT);
   CREATE TABLE jobs_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, job TEXT NOT NULL, ok INTEGER NOT NULL, detail TEXT);
-  `
+  `,
+  `ALTER TABLE slips ADD COLUMN date_note TEXT;`
 ];
 
 function openDb(dataDir) {

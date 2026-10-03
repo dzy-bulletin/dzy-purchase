@@ -19,7 +19,7 @@ test('健康檢查、資料表數量、重啟不重建', async () => {
     const { openDb } = require('../server/db');
     const again = openDb(t.dir);                                    // 同一資料夾再開一次：資料還在
     assert.strictEqual(again.prepare('SELECT COUNT(*) c FROM stores').get().c, 2);
-    assert.strictEqual(again.prepare('PRAGMA user_version').get().user_version, 1);
+    assert.strictEqual(again.prepare('PRAGMA user_version').get().user_version, 2);
     again.close();
     assert.ok((await t.call('GET', '/nope')).error === 'NOT_FOUND');
   } finally { await t.close(); }
@@ -420,17 +420,40 @@ test('#15 retry：僅 failed、同品牌會計／admin；回 queued、attempts �
   } finally { await t.close(); }
 });
 
-test('#16a doc_date 正規化成 YYYY-MM-DD；無法解析 → 拍照日＋DATE_FIXED', async () => {
+test('#16a／#19 PUT 人工日期：只收 YYYY-MM-DD 與民國格式；其他 BAD_INPUT，不改成拍照日', async () => {
   const t = await startApp({ recognize: async () => AI() });
   try {
     const { id, acc } = await reviewSlip(t);
-    const shot = `${id.slice(1, 5)}-${id.slice(5, 7)}-${id.slice(7, 9)}`;
     let p = await t.call('PUT', `/slips/${id}`, { token: acc, body: { doc_date: '115/10/03' } });
-    assert.strictEqual(p.data.doc_date, '2026-10-03'); assert.ok(!p.data.flags.includes('DATE_FIXED'));
-    p = await t.call('PUT', `/slips/${id}`, { token: acc, body: { doc_date: '0115-10-03' } });
     assert.strictEqual(p.data.doc_date, '2026-10-03');
-    p = await t.call('PUT', `/slips/${id}`, { token: acc, body: { doc_date: '亂寫' } });
-    assert.strictEqual(p.data.doc_date, shot); assert.ok(p.data.flags.includes('DATE_FIXED'));
+    p = await t.call('PUT', `/slips/${id}`, { token: acc, body: { doc_date: '115-09-30' } });
+    assert.strictEqual(p.data.doc_date, '2026-09-30');
+    p = await t.call('PUT', `/slips/${id}`, { token: acc, body: { doc_date: '2026-09-29' } });
+    assert.strictEqual(p.data.doc_date, '2026-09-29');
+    for (const bad of ['10/03/2026', '26-10-03', '', '亂寫', '0115-10-03', '2026-02-30']) {
+      p = await t.call('PUT', `/slips/${id}`, { token: acc, body: { doc_date: bad } });
+      assert.strictEqual(p.error, 'BAD_INPUT', bad); assert.match(p.message || '', /日期格式看不懂，請重新輸入/, bad);
+      assert.strictEqual((await t.call('GET', `/slips/${id}`, { token: acc })).data.doc_date, '2026-09-29', bad);   // 沒被改動
+    }
+  } finally { await t.close(); }
+});
+
+test('#17 會計送出的日期（即使等於系統補的拍照日）視為人工確認 → 移除 DATE_FIXED', async () => {
+  const t = await startApp({ recognize: async () => AI({ date: '' }) });
+  try {
+    const { id, acc, d } = await reviewSlip(t);
+    assert.ok(d.flags.includes('DATE_FIXED'));
+    const p = await t.call('PUT', `/slips/${id}`, { token: acc, body: { doc_date: d.doc_date } });   // 原樣送回
+    assert.ok(!p.data.flags.includes('DATE_FIXED')); assert.strictEqual(p.data.date_note, null);
+    assert.ok(!(await t.call('GET', `/slips/${id}`, { token: acc })).data.flags.includes('DATE_FIXED'));
+  } finally { await t.close(); }
+});
+
+test('#20 date_note 存實際原因：兩位數年／讀不出／離太遠', async () => {
+  const t = await startApp({ recognize: async () => AI({ date: '26-10-01' }) });
+  try {
+    const a = await reviewSlip(t);
+    assert.ok(a.d.flags.includes('DATE_FIXED')); assert.strictEqual(a.d.date_note, '年份只有兩位數，暫用拍照日');
   } finally { await t.close(); }
 });
 
@@ -446,16 +469,24 @@ test('#16b PUT 同一個明細列 id 出現兩次 → BAD_INPUT', async () => {
   } finally { await t.close(); }
 });
 
-test('#16c subtotal 有值時要對得上各列加總，否則 SUM_MISMATCH', async () => {
+test('#16c／#18 subtotal 只核對≈各列加總；總額＝加總＋稅額', async () => {
   const t = await startApp({ recognize: async () => AI({ total: '5400', lines: [{ name: '範例肉末', qty: '120', unit: '', unit_price: '45', amount: '5400' }] }) });
   try {
     const { id, acc } = await reviewSlip(t);
     let p = await t.call('PUT', `/slips/${id}`, { token: acc, body: { subtotal: 5400 } });
     assert.ok(!p.data.flags.includes('SUM_MISMATCH'));
-    p = await t.call('PUT', `/slips/${id}`, { token: acc, body: { subtotal: 1234 } });
+    p = await t.call('PUT', `/slips/${id}`, { token: acc, body: { subtotal: 1234 } });   // subtotal 填錯
     assert.ok(p.data.flags.includes('SUM_MISMATCH'));
-    p = await t.call('PUT', `/slips/${id}`, { token: acc, body: { subtotal: 5143, tax: 257 } });   // 列金額含稅：未稅＋稅＝列加總
-    assert.ok(!p.data.flags.includes('SUM_MISMATCH'));
+    p = await t.call('PUT', `/slips/${id}`, { token: acc, body: { subtotal: 5143, tax: 257 } });   // 舊的「列含稅」解讀不再成立
+    assert.ok(p.data.flags.includes('SUM_MISMATCH'));
+  } finally { await t.close(); }
+});
+
+test('#18 審查員反例：各列加總 4200、subtotal 4000、tax 200、total 4400 → SUM_MISMATCH', async () => {
+  const t = await startApp({ recognize: async () => AI({ lines: [{ name: '範例茶葉', qty: '20', unit: '', unit_price: '210', amount: '4200' }], subtotal: '4000', tax: '200', total: '4400' }) });
+  try {
+    const { d } = await reviewSlip(t);
+    assert.ok(d.flags.includes('SUM_MISMATCH'));
   } finally { await t.close(); }
 });
 

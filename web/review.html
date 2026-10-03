@@ -72,6 +72,7 @@
 
 <script>window.PAGE_ROLE = 'review';</script>
 <script src="js/config.js"></script>
+<script src="js/rules.js"></script>
 <script src="js/api.js"></script>
 <script>
 'use strict';
@@ -204,16 +205,9 @@ function lineFlags(l) {
 /* 數量、單價、金額都要填且 > 0（後端同規則；缺值本身就是紅） */
 function lineBad(l) { return l.qty == null || l.unit_price == null || l.amount == null || l.qty <= 0 || l.unit_price <= 0 || l.amount <= 0; }
 function calc() {
-  var sum = 0, anyAmt = false;
-  cur.lines.forEach(function (l) { if (l.amount != null) { sum += l.amount; anyAmt = true; } });
-  sum = r2(sum);
-  /* 與後端 evaluate 同規則：缺總額或任一列缺金額＝紅；sum＝total，或 sum＋稅＝total，或 未稅＋稅＝total 且 sum＝未稅 */
-  var near = function (a, b) { return Math.abs(a - b) < 0.01; };
-  var t = cur.total, tax = cur.tax, sub = cur.subtotal;
-  var missing = t == null || !cur.lines.length || cur.lines.some(function (l) { return l.amount == null; });
-  var subOk = sub == null || near(sum, sub) || (tax != null && near(r2(sub + tax), sum));
-  var sumOk = !missing && subOk && (near(sum, t) || (tax != null && near(r2(sum + tax), t)) || (sub != null && tax != null && near(sum, sub) && near(r2(sub + tax), t)));
-  return { sum: sum, sumOk: sumOk, missing: missing };
+  /* 與後端同一支 web/js/rules.js：各列金額加總＋稅額（空白＝0）＝總額；未稅合計只核對≈各列加總 */
+  var c = Rules.sumCheck(cur.lines.map(function (l) { return l.amount; }), cur.subtotal, cur.tax, cur.total);
+  return { sum: c.sum, sumOk: c.ok, missing: c.missing };
 }
 function update() {
   var c = calc(), reds = 0, unchecked = 0;

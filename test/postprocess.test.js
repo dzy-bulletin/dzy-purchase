@@ -133,3 +133,35 @@ test('#12 HANDWRITTEN 依 handwritten_note 重算：清空即移除', () => {
   assert.deepStrictEqual(evaluate({ total: 10, handwritten_note: '', flags: ['HANDWRITTEN'] }, lines, mapped).flags, []);
   assert.deepStrictEqual(evaluate({ total: 10, handwritten_note: null, flags: ['HANDWRITTEN'] }, lines, mapped).flags, []);
 });
+
+// ---- 第 3 輪（Eason 2026-10-03 定案規則，plan.md 共用契約）----
+const sumFlags = (lines, o) => postprocess(mk(Object.assign({ lines }, o)), SHOT, mapped).flags;
+test('#18 總額規則：審查員反例（加總 4200、subtotal 4000、tax 200、total 4400）→ SUM_MISMATCH', () => {
+  assert.deepStrictEqual(sumFlags([L('a', '20', '210', '4200')], { subtotal: '4000', tax: '200', total: '4400' }), ['SUM_MISMATCH']);
+});
+test('#18 正常含稅（加總 4200、稅 210、總 4410）相符；有正確 subtotal 也相符', () => {
+  assert.deepStrictEqual(sumFlags([L('a', '20', '210', '4200')], { tax: '210', total: '4410' }), []);
+  assert.deepStrictEqual(sumFlags([L('a', '20', '210', '4200')], { subtotal: '4200', tax: '210', total: '4410' }), []);
+});
+test('#18 無稅（加總＝總額、稅空白）相符；subtotal 填錯 → SUM_MISMATCH', () => {
+  assert.deepStrictEqual(sumFlags([L('a', '20', '210', '4200')], { total: '4200' }), []);
+  assert.deepStrictEqual(sumFlags([L('a', '20', '210', '4200')], { subtotal: '3999', total: '4200' }), ['SUM_MISMATCH']);
+});
+test('#18 前後端共用 web/js/rules.js sumCheck 同一組數字', () => {
+  const { sumCheck } = require('../web/js/rules');
+  assert.strictEqual(sumCheck([4200], 4000, 200, 4400).ok, false);
+  assert.strictEqual(sumCheck([4200], null, 210, 4410).ok, true);
+  assert.strictEqual(sumCheck([4200], null, null, 4200).ok, true);
+  assert.strictEqual(sumCheck([4200], 3999, null, 4200).ok, false);
+  assert.strictEqual(sumCheck([4200, null], null, null, 4200).ok, false);
+  assert.strictEqual(sumCheck([4200], null, null, null).ok, false);
+});
+test('#20b 兩位數年視為無法判讀 → 拍照日＋DATE_FIXED，date_note 寫兩位數年', () => {
+  for (const d of ['26/10/03', '26-10-03']) {
+    const r = postprocess(mk({ date: d }), SHOT, mapped);
+    assert.strictEqual(r.doc_date, SHOT); assert.ok(r.flags.includes('DATE_FIXED'));
+    assert.strictEqual(r.date_note, '年份只有兩位數，暫用拍照日');
+  }
+  assert.strictEqual(postprocess(mk({ date: '' }), SHOT, mapped).date_note, '日期讀不出，暫用拍照日');
+  assert.strictEqual(postprocess(mk({ date: '115/10/03' }), SHOT, mapped).doc_date, '2026-10-03');
+});
