@@ -99,3 +99,42 @@ expect eof
   assert.ok(!out.includes(pw), '畫面輸出不得含密碼');
   assert.ok(!out.includes('PTY-'), '畫面輸出不得含密碼片段');
 });
+
+// raw mode 輸入細節：\r\n 算一次 Enter、方向鍵 ESC 序列忽略、Ctrl-D 空輸入取消
+function runPty(steps, extra) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'purchase-pty-'));
+  const script = path.join(dir, 't.exp'); const log = path.join(dir, 'out.txt');
+  fs.writeFileSync(script, `
+set timeout 20
+log_file -noappend ${log}
+spawn ${process.execPath} ${path.resolve(__dirname, '../server/tools/create-accounts.js')} --only admin
+${steps}
+expect eof
+catch wait result
+exit [lindex $result 3]
+`);
+  const r = spawnSync('expect', [script], { env: { ...process.env, DATA_DIR: dir, PURCHASE_NO_DOTENV: '1' }, encoding: 'utf8', timeout: 40000 });
+  const out = fs.readFileSync(log, 'utf8'); fs.rmSync(dir, { recursive: true, force: true });
+  return { r, out };
+}
+test('P4 create-accounts：\\r\\n 一次 Enter、方向鍵忽略（expect）', { skip: !hasExpect && '沒有 expect' }, () => {
+  const { r, out } = runPty(`
+expect "帳號"
+send "pty-a\\033\\[Dmin\\r\\n"
+expect "姓名"
+send "N\\033\\[A\\033OAame\\r\\n"
+expect "密碼"
+send "Abc123x\\r\\n"
+expect "再輸入一次"
+send "Abc123x\\r\\n"
+expect "完成"`);
+  assert.strictEqual(r.status, 0, out.slice(-300));
+  assert.ok(out.includes('已建立 pty-amin'), '方向鍵序列要被忽略、CRLF 不多吃一次 Enter：' + out.slice(-400));
+});
+test('P4 create-accounts：Ctrl-D 空輸入取消（結束碼 130）（expect）', { skip: !hasExpect && '沒有 expect' }, () => {
+  const { r, out } = runPty(`
+expect "帳號"
+send "\\004"`);
+  assert.strictEqual(r.status, 130, out.slice(-300));
+  assert.ok(out.includes('已中止'));
+});

@@ -141,13 +141,26 @@ function makeTtyIo() {
   let queue = []; let waiter = null;
   stdin.on('data', (d) => { for (const c of d) queue.push(c); if (waiter) { const w = waiter; waiter = null; w(); } });
   const nextChar = async () => { while (!queue.length) await new Promise((r) => { waiter = r; }); return queue.shift(); };
+  let skipLF = false;   // \r\n 算一次 Enter：\r 之後緊接的 \n 丟掉
+  const cancel = () => { try { stdin.setRawMode(false); } catch (e) { /* ignore */ } process.stdout.write('\n已中止\n'); process.exit(130); };
   const readLine = async (q, echo) => {
     process.stdout.write(q);
     let buf = '';
     for (;;) {
       const c = await nextChar();
-      if (c === '\r' || c === '\n') { process.stdout.write('\n'); return buf; }
-      if (c === '\u0003') { try { stdin.setRawMode(false); } catch (e) { /* ignore */ } process.stdout.write('\n已中止\n'); process.exit(130); }
+      if (c === '\n' && skipLF) { skipLF = false; continue; }
+      skipLF = false;
+      if (c === '\r' || c === '\n') { skipLF = c === '\r'; process.stdout.write('\n'); return buf; }
+      if (c === '\u0003') cancel();
+      if (c === '\u0004') { if (!buf) cancel(); continue; }   // Ctrl-D：空輸入＝取消，有字就忽略
+      if (c === '\u001b') {   // 方向鍵等 ESC 序列整段忽略（ESC [ … 結尾字母／ESC O x）
+        if (queue.length && (queue[0] === '[' || queue[0] === 'O')) {
+          const intro = queue.shift();
+          if (intro === 'O') { if (queue.length) queue.shift(); }
+          else while (queue.length) { const f = queue.shift(); if (f >= '@' && f <= '~') break; }
+        }
+        continue;
+      }
       if (c === '\u007f' || c === '\b') { if (buf.length) { buf = buf.slice(0, -1); if (echo) process.stdout.write('\b \b'); } continue; }
       if (c >= ' ') { buf += c; if (echo) process.stdout.write(c); }
     }

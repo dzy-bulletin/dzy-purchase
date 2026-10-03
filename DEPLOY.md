@@ -19,7 +19,7 @@
 5. 要確認 `.env` 格式，只准用「回傳數字」的指令（例如 `grep -c '^MODEL=.' "$REPO/server/.env"`）。**時序規則（前後一致）：第 7 步 B2 的 Read 禁止規則生效之前（第 2、3 步），Claude 可以跑這種回傳數字的 grep；B2 生效之後，一律由 Eason 在終端機執行、回報數字。**（B2 只擋 Read／Edit 工具，擋不到 Bash；所以 B2 之後 Claude 仍只靠自己的紀律，不要用 Bash 去讀 `.env`。）
 6. `.env` 不進 git（`.gitignore` 已列 `.env`），權限 `600`。
 7. **不碰佈告欄**：不修改 `~/dzy-bulletin`、`~/dzy-bulletin-data`、`com.dzy.bulletin*` 任何 job、佈告欄的 `server/.env`、埠 8793；Funnel 根路徑 `/` 的設定一個字都不動（第 6 步只**新增** `/purchase` 這一條）。
-8. **Funnel 網址只在對話裡交給 Eason**，不寫進 issue、commit、任何檔案（第 9 步的前端取代由 Eason 在 MacBook 上做）。
+8. **Funnel 網址只允許出現在 `web/js/config.js`**（第 9 步，由 Eason 在 MacBook 上填；Eason 已定案：佈告欄公開的 config.js 已含同一主機名，不增加曝光）。**其他任何檔案、issue、commit 訊息、證據檔、對話回報**都不得出現完整網址（對話中只在第 6 步當下交給 Eason）。
 
 ---
 
@@ -38,10 +38,10 @@ export PATH="$HOME/.local/node/bin:$PATH"; REPO="$HOME/dzy-purchase"; DATA="$HOM
 
 ```sh
 curl -s --max-time 10 http://127.0.0.1:8793/health | python3 -c 'import json,sys; d=json.load(sys.stdin); print({k: d.get(k) for k in ("ok","e2e","bridge","level")})'
-F=$("$TS" funnel status 2>&1); echo "funnel_on=$(echo "$F" | grep -c '(Funnel on)') root_8793=$(echo "$F" | grep -cE '^/ +.*127\.0\.0\.1:8793|^/ +.*localhost:8793')"      # 第五值，期望 funnel_on=1 root_8793=1（若實機格式不同，以第 0 步印出的原樣為準，之後三次逐字比對）
+F=$("$TS" funnel status 2>&1); echo "funnel_on=$(echo "$F" | grep -c '(Funnel on)') root_8793=$(echo "$F" | grep -cE '^\|-- +/ +proxy +http://(127\.0\.0\.1|localhost):8793$')"      # 第五值，期望 funnel_on=1 root_8793=1（**以實際 `tailscale funnel status` 輸出為準**：第 0 步若看不到形如 `|-- / proxy http://127.0.0.1:8793` 的一行、致使 `root_8793` 不是 1，**停下來把輸出（網址已遮蔽）貼給 Eason**，不要自己改判讀式；判讀式定案後，三次逐字比對）
 ```
 
-- Eason 要親手做的事只有**兩批**：**第 7 步（第一批：帳號、備份金鑰）**、**第 8 步（第二批：手機實測）**。Claude 做到那裡就**停下來**，把整批清單貼給 Eason，等他說「做完了」再繼續。其他步驟 Claude 自己做、不需要 sudo（走 LaunchDaemon 路線時，第 5 步、第 7 步有幾行 sudo 也交給 Eason）。
+- Eason 要親手做的事有**三批**：**第 7 步（第一批：帳號、備份金鑰）**、**第 9 步（第二批：MacBook 填前端網址並發佈）**、**第 8 步（第三批：手機實測）**。Claude 做到那裡就**停下來**，把整批清單貼給 Eason，等他說「做完了」再繼續。其他步驟 Claude 自己做、不需要 sudo（走 LaunchDaemon 路線時，第 5 步、第 7 步有幾行 sudo 也交給 Eason）。
 - 背景程序一律寫成「單一指令加 `&`、下一行 `echo $! > pid 檔`」；只關自己記下的那個 PID。等伺服器起來用 `curl --retry … --retry-connrefused`，不用 `sleep`。
 - **驗收要用的數據一律落檔**：寫進 `$DATA/logs/deploy-evidence.txt`（環境、佈告欄基準、模型秒數、`/health`…）。這個檔**不可含金鑰、網址、tailnet 名稱**；回報時從這個檔讀。
 - 中途要關掉 Claude 或重開機時，請 Eason 回來後在**同一個資料夾**打 `claude --continue` 接回對話，再說「繼續照 DEPLOY.md 第 N 步」；接回後 Claude 先 `cat "$HOME/dzy-purchase-data/logs/deploy-evidence.txt"`（這個檔可以印）確認做到哪裡。
@@ -68,7 +68,7 @@ echo "== 佈告欄 job"; ls ~/Library/LaunchAgents/com.dzy.bulletin* /Library/La
 echo "== 本系統既有 job／資料"; ls ~/Library/LaunchAgents/com.dzy.purchase* /Library/LaunchDaemons/com.dzy.purchase* 2>/dev/null || echo "（無）"; ls -d "$DATA" 2>/dev/null || echo "（無 $DATA）"
 echo "== 佈告欄基準 /health"; curl -s --max-time 10 http://127.0.0.1:8793/health | python3 -c 'import json,sys; d=json.load(sys.stdin); print({k: d.get(k) for k in ("ok","e2e","bridge","level")})'
 echo "== Funnel／Serve 現況（網址已遮蔽）"; "$TS" funnel status 2>&1 | sed -E 's#https?://[^ /]+#https://<HOST>#g'; "$TS" serve status 2>&1 | sed -E 's#https?://[^ /]+#https://<HOST>#g'
-F=$("$TS" funnel status 2>&1); echo "== 佈告欄基準第五值"; echo "funnel_on=$(echo "$F" | grep -c '(Funnel on)') root_8793=$(echo "$F" | grep -cE '^/ +.*127\.0\.0\.1:8793|^/ +.*localhost:8793')"
+F=$("$TS" funnel status 2>&1); echo "== 佈告欄基準第五值"; echo "funnel_on=$(echo "$F" | grep -c '(Funnel on)') root_8793=$(echo "$F" | grep -cE '^\|-- +/ +proxy +http://(127\.0\.0\.1|localhost):8793$')"
 echo "== Tailscale 版本與 CLI 說明（唯讀，第 6 步的依據）"; "$TS" version 2>&1 | head -3
 "$TS" funnel --help 2>&1 | head -40; echo ----; "$TS" serve --help 2>&1 | head -40
 echo "== --set-path／--yes 有沒有"; for c in funnel serve; do echo "$c: set-path=$("$TS" $c --help 2>&1 | grep -c -- '--set-path') yes=$("$TS" $c --help 2>&1 | grep -c -- '--yes')"; done
@@ -99,7 +99,7 @@ mkdir -p "$DATA/logs" && chmod 700 "$DATA"
 { echo "== 進貨系統部署證據（不含金鑰、網址）"
   echo "環境：macOS $(sw_vers -productVersion)／$(uname -m)／RAM $(( $(sysctl -n hw.memsize) / 1073741824 )) GB／建立 $(date '+%F %T %Z')"
   echo "路線：<A 或 D，照上表填>"
-  echo "第 0 步 佈告欄基準：$(curl -s --max-time 10 http://127.0.0.1:8793/health | python3 -c 'import json,sys; d=json.load(sys.stdin); print({k: d.get(k) for k in ("ok","e2e","bridge","level")})')／$(F=$("$TS" funnel status 2>&1); echo "funnel_on=$(echo "$F" | grep -c '(Funnel on)') root_8793=$(echo "$F" | grep -cE '^/ +.*127\.0\.0\.1:8793|^/ +.*localhost:8793')")"
+  echo "第 0 步 佈告欄基準：$(curl -s --max-time 10 http://127.0.0.1:8793/health | python3 -c 'import json,sys; d=json.load(sys.stdin); print({k: d.get(k) for k in ("ok","e2e","bridge","level")})')／$(F=$("$TS" funnel status 2>&1); echo "funnel_on=$(echo "$F" | grep -c '(Funnel on)') root_8793=$(echo "$F" | grep -cE '^\|-- +/ +proxy +http://(127\.0\.0\.1|localhost):8793$')")"
 } >> "$DATA/logs/deploy-evidence.txt"
 { "$TS" funnel status 2>&1; echo ---; "$TS" serve status 2>&1; } | sed -E 's#https?://[^ /]+#https://<HOST>#g' > "$DATA/logs/funnel-before.txt"
 cat "$DATA/logs/funnel-before.txt"
@@ -132,7 +132,7 @@ mkdir -p "$DATA/logs" "$DATA/photos" && chmod 700 "$DATA"
 echo "第 2 步 repo $(git -C "$REPO" branch --show-current) $(git -C "$REPO" rev-parse --short HEAD)／Node $("$NODE" -v)（$(date '+%F %T')）" >> "$DATA/logs/deploy-evidence.txt"
 ```
 
-- clone 要帳密（repo 是 private）：**停**，請 Eason 在終端機 App 先做好 GitHub 登入（`gh auth login` 或存好憑證），Claude 不輸入帳密。
+- clone 要帳密（若是 private repo 才會要帳密；本倉庫 dzy-purchase 為 public，不該出現這情況，出現就停下來回報）：**停**，請 Eason 在終端機 App 先做好 GitHub 登入（`gh auth login` 或存好憑證），Claude 不輸入帳密。
 - 跑一次測試當 smoke test（不碰 `.env`、不碰資料夾）：`cd "$REPO" && PURCHASE_NO_DOTENV=1 "$NODE" --test 2>&1 | grep -E '^ℹ (tests|pass|fail)'` → 期望 `fail 0`（測試用暫存資料夾與假照片，不呼叫任何外部服務）。
 
 建 `.env` 骨架（金鑰與網址**留空**，由 Eason 在第 7 步填；`MODEL` 在第 3 步量完秒數後再加）：
@@ -371,7 +371,7 @@ curl -s --max-time 10 http://127.0.0.1:8793/health | python3 -c 'import json,sys
 export PATH="$HOME/.local/node/bin:$PATH"; DATA="$HOME/dzy-purchase-data"
 TS=$( [ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ] && echo /Applications/Tailscale.app/Contents/MacOS/Tailscale || command -v tailscale )
 echo "== 佈告欄基準（改完）前四值"; curl -s --max-time 10 http://127.0.0.1:8793/health | python3 -c 'import json,sys; d=json.load(sys.stdin); print({k: d.get(k) for k in ("ok","e2e","bridge","level")})'
-echo "== 第五值"; F=$("$TS" funnel status 2>&1); echo "funnel_on=$(echo "$F" | grep -c '(Funnel on)') root_8793=$(echo "$F" | grep -cE '^/ +.*127\.0\.0\.1:8793|^/ +.*localhost:8793')"
+echo "== 第五值"; F=$("$TS" funnel status 2>&1); echo "funnel_on=$(echo "$F" | grep -c '(Funnel on)') root_8793=$(echo "$F" | grep -cE '^\|-- +/ +proxy +http://(127\.0\.0\.1|localhost):8793$')"
 echo "== funnel status（網址已遮蔽）"; "$TS" funnel status 2>&1 | sed -E 's#https?://[^ /]+#https://<HOST>#g'
 ```
 
@@ -384,7 +384,7 @@ echo "== funnel status（網址已遮蔽）"; "$TS" funnel status 2>&1 | sed -E 
 - **有 `--yes`**（`funnel --help` 的 `yes=1`）：Claude 可以執行：
 
 ```sh
-"$TS" funnel --https=443 --set-path /purchase off --yes       # 只移除 /purchase（首選）
+"$TS" funnel --https=443 --set-path /purchase --yes off       # 只移除 /purchase（首選）
 "$TS" funnel status 2>&1 | sed -E 's#https?://[^ /]+#https://<HOST>#g'   # 要回到和 funnel-before.txt 一樣
 ```
 
@@ -420,7 +420,7 @@ echo "第 6 步 Funnel /purchase 分流：佈告欄基準（五值）前後一�
 echo "第 6 步 Funnel /purchase 分流：佈告欄基準（五值）前後一致；tailnet 外驗證：繞回驗證不適用，交給 V1／V2 判斷（$(date '+%F %T')）" >> "$HOME/dzy-purchase-data/logs/deploy-evidence.txt"
 ```
 
-**Funnel 網址（`https://` 加 `$H`）只在對話裡交給 Eason**，不寫進任何檔案。一律 `https://`。
+**Funnel 網址（`https://` 加 `$H`）只在對話裡交給 Eason**；唯一會寫進檔案的地方是第 9 步 Eason 在 MacBook 填的 `web/js/config.js`，Mac mini 的任何檔案、證據檔、issue 都不寫。一律 `https://`。
 
 ---
 
@@ -511,7 +511,7 @@ E="$HOME/dzy-purchase/server/.env"; ls -l "$E" | cut -c1-10; grep -c '^BACKUP_KE
 |---|---|---|
 | V1 | 手機（已中斷 Tailscale、4G）打 `<Funnel 網址>/purchase/api/health` | 看到 `{"ok":true,"status":"yellow"…}`（黃燈＝損益推送還沒設，預期） |
 | V2 | 同一支手機打 `<Funnel 網址>/health`（**佈告欄**） | 和部署前一樣，看到 `{"ok":true,…}`；再開佈告欄網頁，公告正常載入 |
-| V3 | 手機（4G、中斷 Tailscale）開**前端網址**的上傳頁，用門市 `MDGF` 登入 → 傳一張**虛構測試單**（可用 `~/dzy-purchase-demo/photos/` 底下任一張示範照片，AirDrop 到手機）→ 等狀態變「待核對」（32B 單張可能要幾分鐘）→ 電腦開會計頁用**會計 A**帳號登入：側欄上方有「目前品牌」切換（央廚／小辛辣）、切到小辛辣看得到這張 → 按「退回重拍」，原因填「部署測試」 | 一路走通；辨識結果的廠商、品項看得出是示範單；退回後門市端看到「退回」 |
+| V3 | 手機（4G、中斷 Tailscale）開**前端網址** `https://dzy-bulletin.github.io/dzy-purchase/upload.html`，用門市 `MDGF` 登入 → 傳一張**虛構測試單**（可用 `~/dzy-purchase-demo/photos/` 底下任一張示範照片，AirDrop 到手機）→ 等狀態變「待核對」（32B 單張可能要幾分鐘）→ 電腦開會計頁用**會計 A**帳號登入：側欄上方有「目前品牌」切換（央廚／小辛辣）、切到小辛辣看得到這張 → 按「退回重拍」，原因填「部署測試」 | 一路走通；辨識結果的廠商、品項看得出是示範單；退回後門市端看到「退回」 |
 | V4 | **會計 B**（墨竹亭）登入：側欄**沒有**品牌切換；看不到 V3 那張；管理者登入管理頁看得到門市 5 間、帳號 3 個 | 是 |
 | V5 | 蘋果選單 → 重新啟動 → **放手，不碰鍵盤滑鼠** → 等 3 分鐘 → 手機（4G、已中斷 Tailscale）打 `/purchase/api/health` **與** 佈告欄 `/health`。**路線 D（FileVault）**：重開後在解鎖畫面輸入部署帳號密碼，**解鎖後不必做任何事，等 3 分鐘** | 兩個都在 3 分鐘內 `{"ok":true,…}`；`status` 不是 red（Ollama 要在登入後自己起來） |
 
@@ -537,13 +537,13 @@ for j in com.dzy.purchase com.dzy.purchase.backup; do launchctl print "$U/$j" >/
 "$TS" funnel status 2>&1 | sed -E 's#https?://[^ /]+#https://<HOST>#g'
 curl -s http://127.0.0.1:8794/purchase/api/health; echo
 curl -s --max-time 10 http://127.0.0.1:8793/health | python3 -c 'import json,sys; d=json.load(sys.stdin); print({k: d.get(k) for k in ("ok","e2e","bridge","level")})'     # 佈告欄基準（前四值）
-F=$("$TS" funnel status 2>&1); echo "funnel_on=$(echo "$F" | grep -c '(Funnel on)') root_8793=$(echo "$F" | grep -cE '^/ +.*127\.0\.0\.1:8793|^/ +.*localhost:8793')"      # 第五值，與第 0 步逐字相同
+F=$("$TS" funnel status 2>&1); echo "funnel_on=$(echo "$F" | grep -c '(Funnel on)') root_8793=$(echo "$F" | grep -cE '^\|-- +/ +proxy +http://(127\.0\.0\.1|localhost):8793$')"      # 第五值，與第 0 步逐字相同
 tail -3 "$DATA/logs/server.log"
 ```
 
 ---
 
-## 第 9 步：前端正式設定（**由 Eason 在 MacBook 上做，不在 Mac mini**；Funnel 網址不進 Mac mini 的任何檔案）
+## 第 9 步：前端正式設定（**由 Eason 在 MacBook 上做，不在 Mac mini**；Funnel 網址只進 `web/js/config.js`，Mac mini 上不留）
 
 前端 `web/js/config.js` 在倉庫裡存的是**佔位字串**（`DEPLOY_BASE` 那一行開頭，兩個底線＋`FUNNEL`＋兩個底線）。沒換就上線，畫面會顯示「尚未設定伺服器網址」，不會悄悄打到別處。處理方式與佈告欄的 `GAS_URL` 相同：部署完才把真正的網址填進前端那份 `config.js` 再發佈（這個主機名佈告欄的 `js/config.js` 已經在用，不是新增的曝光）。
 
@@ -557,7 +557,14 @@ grep -c '__FUNNEL__' web/js/config.js                       # 期望 0
 grep -n "var DEPLOY_BASE" web/js/config.js                  # 期望 'https://<主機名>/purchase/api'
 ```
 
-確認後 commit 並發佈前端（GitHub Pages）。**驗證**：手機（4G、中斷 Tailscale）開前端上傳頁，登入畫面出現、登入不顯示「尚未設定伺服器網址」。
+**發佈（GitHub Pages，自動）**：
+
+```sh
+git add web/js/config.js && git commit -m "前端：填入正式伺服器網址" && git push origin main
+gh run list -R dzy-bulletin/dzy-purchase --workflow pages.yml -L 1      # 等到 completed／success（push main 觸發 .github/workflows/pages.yml 自動發佈 web/）
+```
+
+`pages.yml` 沒成功就**不要往下**，貼 `gh run view` 的結果給 Claude。成功後**驗證**：用瀏覽器（手機 4G、已中斷 Tailscale 更好）打開 `https://dzy-bulletin.github.io/dzy-purchase/upload.html`，登入畫面出現、**不再顯示「尚未設定伺服器網址」**。（repo 是 **public**，所以 config.js 內的網址是公開的，這是已定案的取捨。）
 `?api=` 覆寫只在用 `localhost`／`127.0.0.1` 開頁時生效，而且只收 `http://localhost|127.0.0.1:埠/purchase/api`；正式網址一律忽略（防止假連結把人導到釣魚後端）。本機測試前端：`DATA_DIR=<資料夾> PORT=8794 node server/index.js` 加 `python3 -m http.server 8792 --bind 127.0.0.1 -d web`，開 `http://localhost:8792/upload.html`（預設就連 `http://localhost:8794`）。
 
 ---
@@ -625,7 +632,7 @@ E="$HOME/dzy-purchase/server/.env"; DATA="$HOME/dzy-purchase-data"
 </details>
 ```
 
-Funnel 網址：**在對話裡**交給 Eason，不寫在上面。
+Funnel 網址：**在對話裡**交給 Eason，不寫在上面（唯一例外：第 9 步 Eason 填進 `web/js/config.js`）。
 
 ---
 
@@ -677,7 +684,7 @@ Funnel 網址：**在對話裡**交給 Eason，不寫在上面。
 export PATH="$HOME/.local/node/bin:$PATH"; U="gui/$(id -u)"
 TS=$( [ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ] && echo /Applications/Tailscale.app/Contents/MacOS/Tailscale || command -v tailscale )
 # ① 先拆 Funnel 路徑：有 --yes 才由 Claude 執行；沒有 --yes 請 Eason 在終端機手動執行（會互動確認），做完再繼續
-"$TS" funnel --https=443 --set-path /purchase off --yes                              # 沒有 --yes 時改由 Eason：tailscale funnel --https=443 --set-path /purchase off
+"$TS" funnel --https=443 --set-path /purchase --yes off                              # 沒有 --yes 時改由 Eason：tailscale funnel --https=443 --set-path /purchase off
 "$TS" funnel status 2>&1 | sed -E 's#https?://[^ /]+#https://<HOST>#g'                # 要與 funnel-before.txt 相同
 for j in com.dzy.purchase com.dzy.purchase.backup; do launchctl bootout "$U/$j" 2>/dev/null; rm -f "$HOME/Library/LaunchAgents/$j.plist"; done    # ② 路線 A；路線 D 請 Eason：sudo launchctl bootout system/<label>; sudo rm /Library/LaunchDaemons/<label>.plist
 curl -s --max-time 10 http://127.0.0.1:8793/health | python3 -c 'import json,sys; d=json.load(sys.stdin); print({k: d.get(k) for k in ("ok","e2e","bridge","level")})'    # ③ 佈告欄基準
