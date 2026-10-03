@@ -16,13 +16,25 @@ const PROMPT = `這是一張台灣餐廳收到的廠商貨單（出貨單／銷�
 
 const MAX_EDGE = 16 * 100;   // 長邊上限（像素）
 // 長邊縮到 MAX_EDGE（macOS sips；沒有就用原圖，Ollama 自己也會縮）
+// 任何錯誤（檔案不存在、sips 壞掉…）一律 reject，不可在 callback 內丟出未捕捉的同步例外（會讓整個 process 掛掉）
+function readOriginal(file) {
+  try { return fs.readFileSync(file); }
+  catch (e) { throw new Error(e && e.code === 'ENOENT' ? '照片檔不存在' : '照片讀取失敗：' + ((e && e.message) || e)); }
+}
 function shrink(file) {
-  return new Promise((resolve) => {
-    const tmp = path.join(os.tmpdir(), `purchase-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`);
-    execFile('sips', ['-Z', String(MAX_EDGE), file, '--out', tmp], { timeout: 30000 }, (err) => {
-      if (err) return resolve(fs.readFileSync(file));
-      try { const b = fs.readFileSync(tmp); fs.unlinkSync(tmp); resolve(b); } catch (e) { resolve(fs.readFileSync(file)); }
-    });
+  return new Promise((resolve, reject) => {
+    try {
+      if (!fs.existsSync(file)) throw new Error('照片檔不存在');
+      const tmp = path.join(os.tmpdir(), `purchase-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`);
+      execFile('sips', ['-Z', String(MAX_EDGE), file, '--out', tmp], { timeout: 30000 }, (err) => {
+        try {
+          if (err) return resolve(readOriginal(file));
+          let b; try { b = fs.readFileSync(tmp); } catch (e) { return resolve(readOriginal(file)); }
+          try { fs.unlinkSync(tmp); } catch (e) { /* 暫存檔清不掉不影響 */ }
+          resolve(b);
+        } catch (e) { reject(e); }
+      });
+    } catch (e) { reject(e); }
   });
 }
 
@@ -110,6 +122,7 @@ function createWorker({ db, cfg, recognize, log }) {
     let lastErr = '';
     try {
       const files = db.prepare('SELECT path FROM slip_photos WHERE slip_id = ? ORDER BY seq').all(slip.id).map((p) => photoFile(cfg, p.path));
+      if (!files.length || files.some((f) => !fs.existsSync(f))) throw new Error('照片檔不存在');   // 重試也不會好，直接標 failed、繼續下一張
       for (let attempt = 1; attempt <= 3; attempt++) {       // 第 1 次＋重試 2 次
         const t0 = Date.now();
         try {
@@ -127,14 +140,21 @@ function createWorker({ db, cfg, recognize, log }) {
           else break;
         }
       }
-    } catch (e) { lastErr = 'worker: ' + String((e && e.message) || e); }
+    } catch (e) { lastErr = String((e && e.message) || e) === '照片檔不存在' ? '照片檔不存在' : 'worker: ' + String((e && e.message) || e); }
     markFailed(slip.id, lastErr || 'unknown');
     return true;
   }
 
   // 所有處理排成一條鏈：不管誰呼叫 drain，同時只會有一張在辨識（32GB 一次只跑一個模型）
   function drain() {
-    const p = chain.then(async () => { while (!stopped && await processOne()) { /* 一次一張 */ } });
+    const p = chain.then(async () => {
+      while (!stopped) {
+        let more = false;
+        try { more = await processOne(); }
+        catch (e) { say('[worker] unexpected ' + ((e && e.message) || e)); try { jobLog(db, 'recognize', false, 'unexpected ' + ((e && e.message) || e)); } catch (e2) { /* ignore */ } break; }   // 全域保險：不外溢
+        if (!more) break;     // 一次一張
+      }
+    });
     chain = p.catch(() => {});
     return p;
   }
@@ -157,4 +177,4 @@ function createWorker({ db, cfg, recognize, log }) {
   };
 }
 
-module.exports = { createWorker, PROMPT, ollamaRecognize, parseAi };
+module.exports = { createWorker, PROMPT, ollamaRecognize, parseAi, shrink };

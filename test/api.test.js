@@ -364,3 +364,117 @@ test('#11 worker：單張等待時間可設定（OLLAMA_TIMEOUT_S，預設 300 �
     assert.strictEqual(s.status, 'failed'); assert.strictEqual(s.attempts, 3); assert.ok(Date.now() - t0 < 5000, '應在數秒內結束');
   } finally { hang.closeAllConnections(); hang.close(); await t.close(); }
 });
+
+// ---------- 第 2 輪修正（#14／#15／#16）----------
+const fakeOllama = async (body) => {
+  const http = require('http');
+  const srv = http.createServer((req, res) => { req.resume(); req.on('end', () => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ response: body })); }); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  return srv;
+};
+
+test('#14 照片檔不存在：該張 failed（照片檔不存在）、process 不崩潰、下一張照常處理', async () => {
+  const srv = await fakeOllama(AI());
+  const t = await startApp({ cfg: { OLLAMA_URL: `http://127.0.0.1:${srv.address().port}` } });   // 走真實 ollamaRecognize → shrink
+  let uncaught = null; const h = (e) => { uncaught = e; }; process.on('uncaughtException', h);
+  try {
+    const st = await t.login('C01', PASS.SEED_PASS_C01);
+    const a = await t.upload(st), b = await t.upload(st);
+    const pa = t.app.db.prepare('SELECT path FROM slip_photos WHERE slip_id = ?').get(a.data.id).path;
+    fs.unlinkSync(path.join(t.cfg.DATA_DIR, pa.replace(/^data\//, '')));
+    await t.app.worker.drain();
+    await new Promise((r) => setTimeout(r, 100));
+    assert.strictEqual(uncaught, null);
+    const sa = t.app.db.prepare('SELECT status, error FROM slips WHERE id = ?').get(a.data.id);
+    assert.strictEqual(sa.status, 'failed'); assert.match(sa.error, /照片檔不存在/);
+    assert.strictEqual(t.app.db.prepare('SELECT status FROM slips WHERE id = ?').get(b.data.id).status, 'review');
+  } finally { process.removeListener('uncaughtException', h); srv.close(); await t.close(); }
+});
+
+test('#14 shrink 遇到不存在的檔案是 reject，不是未捕捉例外', async () => {
+  const { shrink } = require('../server/worker');
+  await assert.rejects(shrink(path.join(require('os').tmpdir(), 'no-such-photo-' + Date.now() + '.jpg')), /照片檔不存在/);
+});
+
+test('#15 retry：僅 failed、同品牌會計／admin；回 queued、attempts 歸零、清 error、寫 audit；辨識後回 review', async () => {
+  let fail = true;
+  const t = await startApp({ recognize: async () => { if (fail) throw new Error('boom'); return AI(); } });
+  try {
+    const st = await t.login('C01', PASS.SEED_PASS_C01);
+    const up = await t.upload(st); const id = up.data.id;
+    await t.app.worker.drain();
+    const acc = await t.login('acc-c', PASS.SEED_PASS_ACC_C), accM = await t.login('acc-m', PASS.SEED_PASS_ACC_M);
+    const f = t.app.db.prepare('SELECT status, attempts, error FROM slips WHERE id = ?').get(id);
+    assert.strictEqual(f.status, 'failed'); assert.strictEqual(f.attempts, 3); assert.ok(f.error);
+    assert.strictEqual((await t.call('POST', `/slips/${id}/retry`, { token: st })).error, 'FORBIDDEN');
+    assert.strictEqual((await t.call('POST', `/slips/${id}/retry`, { token: accM })).error, 'FORBIDDEN');
+    fail = false;
+    t.app.worker.stop();                      // 不讓背景 kick 搶在斷言之前處理
+    const r = await t.call('POST', `/slips/${id}/retry`, { token: acc });
+    assert.strictEqual(r.ok, true);
+    const q = t.app.db.prepare('SELECT status, attempts, error FROM slips WHERE id = ?').get(id);
+    assert.deepStrictEqual({ s: q.status, a: q.attempts, e: q.error }, { s: 'queued', a: 0, e: null });
+    assert.strictEqual((await t.call('POST', `/slips/${id}/retry`, { token: acc })).error, 'CONFLICT');   // 不再是 failed
+    const acts = t.app.db.prepare('SELECT action FROM audit WHERE slip_id = ? ORDER BY id').all(id).map((x) => x.action);
+    assert.ok(acts.includes('retry'));
+  } finally { await t.close(); }
+});
+
+test('#16a doc_date 正規化成 YYYY-MM-DD；無法解析 → 拍照日＋DATE_FIXED', async () => {
+  const t = await startApp({ recognize: async () => AI() });
+  try {
+    const { id, acc } = await reviewSlip(t);
+    const shot = `${id.slice(1, 5)}-${id.slice(5, 7)}-${id.slice(7, 9)}`;
+    let p = await t.call('PUT', `/slips/${id}`, { token: acc, body: { doc_date: '115/10/03' } });
+    assert.strictEqual(p.data.doc_date, '2026-10-03'); assert.ok(!p.data.flags.includes('DATE_FIXED'));
+    p = await t.call('PUT', `/slips/${id}`, { token: acc, body: { doc_date: '0115-10-03' } });
+    assert.strictEqual(p.data.doc_date, '2026-10-03');
+    p = await t.call('PUT', `/slips/${id}`, { token: acc, body: { doc_date: '亂寫' } });
+    assert.strictEqual(p.data.doc_date, shot); assert.ok(p.data.flags.includes('DATE_FIXED'));
+  } finally { await t.close(); }
+});
+
+test('#16b PUT 同一個明細列 id 出現兩次 → BAD_INPUT', async () => {
+  const t = await startApp({ recognize: async () => AI({ total: '5400', lines: [{ name: '範例肉末', qty: '120', unit: '', unit_price: '45', amount: '5400' }] }) });
+  try {
+    const { id, acc, d } = await reviewSlip(t);
+    const l = d.lines[0];
+    const row = { id: l.id, raw_name: l.raw_name, qty: l.qty, unit: l.unit, unit_price: l.unit_price, amount: l.amount };
+    const r = await t.call('PUT', `/slips/${id}`, { token: acc, body: { lines: [row, row] } });
+    assert.strictEqual(r.error, 'BAD_INPUT');
+    assert.strictEqual((await t.call('GET', `/slips/${id}`, { token: acc })).data.lines.length, 1);   // 交易回滾，沒少存
+  } finally { await t.close(); }
+});
+
+test('#16c subtotal 有值時要對得上各列加總，否則 SUM_MISMATCH', async () => {
+  const t = await startApp({ recognize: async () => AI({ total: '5400', lines: [{ name: '範例肉末', qty: '120', unit: '', unit_price: '45', amount: '5400' }] }) });
+  try {
+    const { id, acc } = await reviewSlip(t);
+    let p = await t.call('PUT', `/slips/${id}`, { token: acc, body: { subtotal: 5400 } });
+    assert.ok(!p.data.flags.includes('SUM_MISMATCH'));
+    p = await t.call('PUT', `/slips/${id}`, { token: acc, body: { subtotal: 1234 } });
+    assert.ok(p.data.flags.includes('SUM_MISMATCH'));
+    p = await t.call('PUT', `/slips/${id}`, { token: acc, body: { subtotal: 5143, tax: 257 } });   // 列金額含稅：未稅＋稅＝列加總
+    assert.ok(!p.data.flags.includes('SUM_MISMATCH'));
+  } finally { await t.close(); }
+});
+
+test('#16d 2/29 等月日在拍照年與前一年都不存在 → date_note 如實說明', async () => {
+  const t = await startApp({ recognize: async () => AI({ date: '2020-02-29' }) });
+  try {
+    const a = await reviewSlip(t);
+    assert.ok(a.d.flags.includes('DATE_FIXED'));
+    assert.match(a.d.date_note, /2\/29/); assert.doesNotMatch(a.d.date_note, /附近的年份/);
+  } finally { await t.close(); }
+});
+
+test('#16f reopen 清掉殘留的 error', async () => {
+  const t = await startApp({ recognize: async () => AI() });
+  try {
+    const { id, acc } = await reviewSlip(t);
+    t.app.db.prepare("UPDATE slips SET error = '舊的辨識錯誤' WHERE id = ?").run(id);
+    await t.call('POST', `/slips/${id}/return`, { token: acc, body: { reason: 'x' } });
+    await t.call('POST', `/slips/${id}/reopen`, { token: acc });
+    assert.strictEqual(t.app.db.prepare('SELECT error FROM slips WHERE id = ?').get(id).error, null);
+  } finally { await t.close(); }
+});

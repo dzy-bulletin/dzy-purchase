@@ -85,7 +85,8 @@ function evaluate(slip, lines, ctx) {
   else if (outLines.length) {
     const sum = round2(outLines.reduce((s, l) => s + l.amount, 0));
     const { subtotal: sub, tax } = slip;
-    const ok = near(sum, total) || (tax != null && near(round2(sum + tax), total)) || (sub != null && tax != null && near(sum, sub) && near(round2(sub + tax), total));
+    const subOk = sub == null || near(sum, sub) || (tax != null && near(round2(sub + tax), sum));   // 有未稅合計就要對得上各列加總（列金額是未稅，或已含稅）
+    const ok = subOk && (near(sum, total) || (tax != null && near(round2(sum + tax), total)) || (sub != null && tax != null && near(sum, sub) && near(round2(sub + tax), total)));
     if (!ok) sf.add('SUM_MISMATCH');
   }
   return { lines: outLines, flags: sortFlags(sf) };

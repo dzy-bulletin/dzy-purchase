@@ -54,6 +54,7 @@ function makeApp(cfg, opts) {
     if (!parseFlags(s.flags).includes('DATE_FIXED')) return null;
     let raw = null; try { raw = JSON.parse(s.ai_raw || 'null'); } catch (e) { /* ignore */ }
     if (raw && typeof raw === 'object' && !parseDate(raw.date)) return '日期讀不出，暫用拍照日';
+    if (raw && typeof raw === 'object' && s.doc_date === `${s.id.slice(1, 5)}-${s.id.slice(5, 7)}-${s.id.slice(7, 9)}`) return '日期的月日在拍照年與前一年都不存在（例如 2/29），暫用拍照日';
     return '年份離拍照日太遠，已改用拍照日附近的年份';
   }
 
@@ -249,10 +250,17 @@ function makeApp(cfg, opts) {
         }
       }
       if (b.doc_date !== undefined) {
-        const d = parseDate(b.doc_date);
-        if (b.doc_date !== null && (!d || !/^\d{4}-\d{2}-\d{2}$/.test(String(b.doc_date)))) throw new ApiError('BAD_INPUT', 'doc_date 必須是 YYYY-MM-DD');
-        set.doc_date = b.doc_date;
-        if (b.doc_date !== s.doc_date) set.flags = JSON.stringify(parseFlags(s.flags).filter((f) => f !== 'DATE_FIXED'));
+        // 入庫前一律正規化成 YYYY-MM-DD（民國年、斜線、點都收）；解析不出來（或年份離譜）就用拍照日並標 DATE_FIXED
+        let nd = null, fixed = false;
+        if (b.doc_date !== null) {
+          const d = parseDate(b.doc_date);
+          if (d && d.y >= 2000 && d.y <= 2100) nd = `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`;
+          else { nd = `${s.id.slice(1, 5)}-${s.id.slice(5, 7)}-${s.id.slice(7, 9)}`; fixed = true; }
+        }
+        set.doc_date = nd;
+        const fl = parseFlags(s.flags).filter((f) => f !== 'DATE_FIXED');
+        if (fixed) fl.push('DATE_FIXED');
+        if (fixed || nd !== s.doc_date) set.flags = JSON.stringify(fl);
       }
       if (b.doc_no !== undefined) set.doc_no = b.doc_no == null ? null : String(b.doc_no).slice(0, 60);
       if (b.total !== undefined) set.total = num(b.total, 'total', 'pos');
@@ -269,8 +277,13 @@ function makeApp(cfg, opts) {
         if (!Array.isArray(b.lines)) throw new ApiError('BAD_INPUT', 'lines 必須是陣列');
         const old = new Map(linesOf(s.id).map((l) => [l.id, l]));
         const keep = new Set();
+        const seenIds = new Set();
         b.lines.forEach((l, i) => {
           if (!l || typeof l !== 'object') throw new ApiError('BAD_INPUT', 'lines 格式錯誤');
+          if (l.id !== undefined && l.id !== null) {
+            if (seenIds.has(Number(l.id))) throw new ApiError('BAD_INPUT', `明細列 ${l.id} 重複出現`);
+            seenIds.add(Number(l.id));
+          }
           const nl = { raw_name: String(l.raw_name == null ? '' : l.raw_name).slice(0, 200), unit: String(l.unit == null ? '' : l.unit).slice(0, 20),
             qty: num(l.qty, `第 ${i + 1} 列數量`, 'pos'), unit_price: num(l.unit_price, `第 ${i + 1} 列單價`, 'pos'), amount: num(l.amount, `第 ${i + 1} 列金額`, 'pos'), item_id: null };
           if (l.item_id) {
@@ -341,10 +354,24 @@ function makeApp(cfg, opts) {
     const s = accessSlip(p, m[1]);
     if (s.status !== 'returned') throw new ApiError('CONFLICT', '只有「退回重拍」的貨單可以重新開放');
     const before = snapshot(s);
-    db.prepare("UPDATE slips SET status='review' WHERE id=?").run(s.id);        // return_reason 保留
+    db.prepare("UPDATE slips SET status='review', error=NULL WHERE id=?").run(s.id);        // return_reason 保留；清掉殘留的辨識錯誤
     audit(db, A.whoOf(p), 'reopen', s.id, before, Object.assign(snapshot(slipRow(s.id)), { return_reason: s.return_reason }));
     return detail(slipRow(s.id));
   }));
+
+  // 辨識失敗（含停機中途被標 failed）→ 重新辨識：回到 queued、重試次數歸零、清錯誤
+  route('POST', /^\/slips\/([^/]+)\/retry$/, ['accountant', 'admin'], async ({ p, m }) => {
+    const out = db.tx(() => {
+      const s = accessSlip(p, m[1]);
+      if (s.status !== 'failed') throw new ApiError('CONFLICT', '只有「辨識失敗」的貨單可以重新辨識');
+      const before = snapshot(s);
+      db.prepare("UPDATE slips SET status='queued', attempts=0, error=NULL WHERE id=?").run(s.id);
+      audit(db, A.whoOf(p), 'retry', s.id, before, snapshot(slipRow(s.id)));
+      return detail(slipRow(s.id));
+    });
+    worker.kick();
+    return out;
+  });
 
   route('POST', /^\/slips\/([^/]+)\/return$/, ['accountant', 'admin'], async ({ req, p, m }) => {
     const b = parseJson(await readBody(req, 64 * 1024));

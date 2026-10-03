@@ -115,8 +115,9 @@ async function loadList() {
     box.innerHTML = list.map(function (s) {
       var red = (s.flags || []).some(function (f) { return RED[f]; });
       return '<div class="item' + (cur && cur.id === s.id ? ' sel' : '') + '" data-id="' + esc(s.id) + '"><div class="row"><b class="grow">' + esc(s.vendor_name || '（未指定）') + '</b>' +
-        (red ? '<span class="badge b-failed">紅</span>' : '') + '</div><div class="muted">' + esc(s.store_name || s.store_id || '') + '　' + esc(s.doc_date || '') + '　' + (s.total != null ? '$' + fmt(s.total) : '') + '</div><div class="muted">' + esc(s.id) + '</div></div>';
+        (red ? '<span class="badge b-failed">紅</span>' : '') + '</div><div class="muted">' + esc(s.store_name || s.store_id || '') + '　' + esc(s.doc_date || '') + '　' + (s.total != null ? '$' + fmt(s.total) : '') + '</div><div class="muted">' + esc(s.id) + '</div>' + ($('statusSel').value === 'failed' ? '<button data-retry="' + esc(s.id) + '">重新辨識</button>' : '') + '</div>';
     }).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('[data-retry]'), function (b) { b.onclick = function (ev) { ev.stopPropagation(); doRetry(b.dataset.retry, true); }; });
     Array.prototype.forEach.call(box.querySelectorAll('.item[data-id]'), function (el) { el.onclick = function () { openSlip(el.dataset.id); }; });
   } catch (e) { box.innerHTML = '<div class="item"><div class="msg err">' + esc(e.message) + '</div></div>'; }
 }
@@ -171,7 +172,7 @@ function bindHead() {
 }
 
 function buildRows() {
-  var ro = cur.status === 'confirmed', tb = $('tb');
+  var ro = cur.status === 'confirmed' || cur.status === 'returned', tb = $('tb');
   tb.innerHTML = cur.lines.map(function (l, i) {
     function inp(k, cls) { return '<td class="' + (cls || '') + '"><input data-i="' + i + '" data-k="' + k + '" ' + (cls === 'num' ? 'inputmode="decimal" ' : '') + 'value="' + esc(l[k] == null ? '' : l[k]) + '" ' + (ro ? 'disabled' : '') + '></td>'; }
     return '<tr id="r' + i + '"><td style="min-width:150px"><input data-i="' + i + '" data-k="raw_name" value="' + esc(l.raw_name || '') + '" ' + (ro ? 'disabled' : '') + '><div class="why" data-why="' + i + '"></div></td>' +
@@ -210,7 +211,8 @@ function calc() {
   var near = function (a, b) { return Math.abs(a - b) < 0.01; };
   var t = cur.total, tax = cur.tax, sub = cur.subtotal;
   var missing = t == null || !cur.lines.length || cur.lines.some(function (l) { return l.amount == null; });
-  var sumOk = !missing && (near(sum, t) || (tax != null && near(r2(sum + tax), t)) || (sub != null && tax != null && near(sum, sub) && near(r2(sub + tax), t)));
+  var subOk = sub == null || near(sum, sub) || (tax != null && near(r2(sub + tax), sum));
+  var sumOk = !missing && subOk && (near(sum, t) || (tax != null && near(r2(sum + tax), t)) || (sub != null && tax != null && near(sum, sub) && near(r2(sub + tax), t)));
   return { sum: sum, sumOk: sumOk, missing: missing };
 }
 function update() {
@@ -247,6 +249,7 @@ function buildActions() {
   $('saveBtn').onclick = function () { save().then(function (ok) { if (ok) say('已儲存', 'ok'); }); };
   $('confirmBtn').onclick = doConfirm;
   $('returnBtn').onclick = doReturn;
+  if (st === 'failed') { var rb = document.createElement('button'); rb.id = 'retryBtn'; rb.textContent = '重新辨識'; rb.onclick = function () { doRetry(cur.id, false); }; a.insertBefore(rb, a.firstChild); }
 }
 function say(t, cls) { var m = $('actMsg'); if (m) m.innerHTML = '<div class="msg ' + cls + '">' + esc(t) + '</div>'; }
 function payload() {
@@ -271,6 +274,13 @@ async function doReturn() {
   try { await API.call('/slips/' + encodeURIComponent(cur.id) + '/return', { method: 'POST', body: { reason: reason } });
     dirty = false; cur = null; $('work').innerHTML = '<div class="detail"><div class="msg ok">已退回門市重拍</div></div>'; loadList(); }
   catch (e) { say(e.message, 'err'); }
+}
+async function doRetry(id, fromList) {
+  if (!confirm('重新辨識這張貨單？（會回到排隊，手動輸入的內容之後會被辨識結果覆蓋）')) return;
+  try { await API.call('/slips/' + encodeURIComponent(id) + '/retry', { method: 'POST', body: {} });
+    if (cur && cur.id === id) { dirty = false; cur = null; $('work').innerHTML = '<div class="detail"><div class="msg ok">' + esc(id) + ' 已重新排隊辨識</div></div>'; }
+    loadList(); }
+  catch (e) { if (fromList) alert(e.message); else say(e.message, 'err'); }
 }
 async function doReopen() {
   if (!confirm('重新開放後這張會回到待核對，退回原因會保留在紀錄裡。確定？')) return;
