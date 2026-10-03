@@ -3,7 +3,7 @@
 const FLAG_ORDER = ['DATE_FIXED', 'AMOUNT_FIXED', 'AMOUNT_MISMATCH', 'SUM_MISMATCH', 'PRICE_MISSING', 'HANDWRITTEN', 'ITEM_UNMAPPED', 'UNIT_UNCONVERTED'];
 const RED = new Set(['AMOUNT_MISMATCH', 'SUM_MISMATCH', 'PRICE_MISSING']);
 const STICKY_LINE = ['AMOUNT_FIXED'];            // 歷史事實型旗標：重算時保留（人工改過該欄位則去掉）
-const STICKY_SLIP = ['DATE_FIXED', 'HANDWRITTEN'];
+const STICKY_SLIP = ['DATE_FIXED'];   // HANDWRITTEN 不 sticky：依 handwritten_note 是否有內容重算
 
 const round2 = (x) => Math.round((x + Number.EPSILON) * 100) / 100;
 const near = (a, b) => Math.abs(a - b) < 0.01;
@@ -32,18 +32,28 @@ function parseDate(raw) {
   const mo = Number(m[2]), d = Number(m[3]);
   return validYmd(y, mo, d) ? { y, m: mo, d } : null;
 }
-// 日期校正：讀不出來或離拍照日 > 60 天 → 年份改成拍照日年份（DATE_FIXED）
+// 日期校正：讀不出來 → 暫用拍照日（DATE_FIXED）；離拍照日 > 60 天 → 在「拍照年」與「拍照年−1」中，
+// 取離拍照日最近且不晚於拍照日 7 天者；都不合就用拍照日（DATE_FIXED）
 function fixDate(raw, shotDate) {
   const shot = parseDate(shotDate);
   const p = parseDate(raw);
-  if (!p) return { date: shotDate, fixed: true };
+  if (!p) return { date: shotDate, fixed: true, reason: 'unreadable' };
   const iso = (o) => `${o.y}-${pad(o.m)}-${pad(o.d)}`;
-  const diff = Math.abs(Date.UTC(p.y, p.m - 1, p.d) - Date.UTC(shot.y, shot.m - 1, shot.d)) / 86400e3;
-  if (diff <= 60) return { date: iso(p), fixed: false };
-  if (!validYmd(shot.y, p.m, p.d)) return { date: shotDate, fixed: true };
-  return { date: iso({ y: shot.y, m: p.m, d: p.d }), fixed: true };
+  const day = (y, m, d) => Date.UTC(y, m - 1, d) / 86400e3;
+  const shotDay = day(shot.y, shot.m, shot.d);
+  if (Math.abs(day(p.y, p.m, p.d) - shotDay) <= 60) return { date: iso(p), fixed: false };
+  let best = null;
+  for (const y of [shot.y, shot.y - 1]) {
+    if (!validYmd(y, p.m, p.d)) continue;
+    const diff = day(y, p.m, p.d) - shotDay;
+    if (diff > 7) continue;
+    if (!best || Math.abs(diff) < best.abs) best = { y, abs: Math.abs(diff) };
+  }
+  if (!best) return { date: shotDate, fixed: true, reason: 'far' };
+  return { date: iso({ y: best.y, m: p.m, d: p.d }), fixed: true, reason: 'far' };
 }
 
+const pos = (n) => (n != null && n > 0 ? n : null);   // 數量／單價／金額／總額必須 > 0，其餘視為讀不出
 const NO_HAND = new Set(['', '無', '无', '沒有', '没有', '無手寫', '無修改', '無手寫修改', 'none', 'null', 'n/a', 'na', '-', '無手寫修改說明']);
 function handwrittenText(x) {
   const s = String(x == null ? '' : x).trim();
@@ -69,8 +79,10 @@ function evaluate(slip, lines, ctx) {
   });
   const sf = new Set();
   for (const k of STICKY_SLIP) if ((slip.flags || []).includes(k)) sf.add(k);
+  if (handwrittenText(slip.handwritten_note)) sf.add('HANDWRITTEN');
   const total = slip.total;
-  if (total != null && outLines.length && outLines.every((l) => l.amount != null)) {
+  if (outLines.length && (total == null || outLines.some((l) => l.amount == null))) sf.add('SUM_MISMATCH');   // 缺值本身就是紅，不可跳過檢核
+  else if (outLines.length) {
     const sum = round2(outLines.reduce((s, l) => s + l.amount, 0));
     const { subtotal: sub, tax } = slip;
     const ok = near(sum, total) || (tax != null && near(round2(sum + tax), total)) || (sub != null && tax != null && near(sum, sub) && near(round2(sub + tax), total));
@@ -87,13 +99,13 @@ function postprocess(ai, shotDate, ctx) {
   const slip = {
     doc_date: d.date, doc_no: String(ai.doc_no == null ? '' : ai.doc_no).trim(),
     vendor_name: String(ai.vendor == null ? '' : ai.vendor).trim(),
-    subtotal: parseNum(ai.subtotal), tax: parseNum(ai.tax), total: parseNum(ai.total),
+    subtotal: pos(parseNum(ai.subtotal)), tax: pos(parseNum(ai.tax)), total: pos(parseNum(ai.total)),
     total_handwritten: hand ? 1 : 0, handwritten_note: hand,
     flags: [].concat(d.fixed ? ['DATE_FIXED'] : [], hand ? ['HANDWRITTEN'] : [])
   };
   const rawLines = (Array.isArray(ai.lines) ? ai.lines : []).filter((x) => x && typeof x === 'object');
   const lines = rawLines.map((x, i) => {
-    let qty = parseNum(x.qty), price = parseNum(x.unit_price), amt = parseNum(x.amount);
+    let qty = pos(parseNum(x.qty)), price = pos(parseNum(x.unit_price)), amt = pos(parseNum(x.amount));
     const flags = [];
     if (qty != null && price != null) {
       const calc = round2(qty * price);

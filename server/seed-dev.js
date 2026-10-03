@@ -8,7 +8,7 @@ const { loadConfig } = require('./config');
 const { openDb } = require('./db');
 const { hashPassword } = require('./auth');
 
-const VENDORS = ['邦聿肉品', '建味實業', '台川食品商行', '欣福利/品優', '金豐盛食品', '蔬鄉'];
+const VENDORS = ['測試肉品行', '範例蔬果行', '示範乾貨行', '模擬食品商行', '虛構調味行', '樣品雜貨行'];
 
 function seed(db, env) {
   env = env || process.env;

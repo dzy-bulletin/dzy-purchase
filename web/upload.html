@@ -74,6 +74,8 @@ var $ = function (id) { return document.getElementById(id); };
 var STATUS_TEXT = { uploaded: '已送出', queued: '排隊中', recognizing: '辨識中', review: '待核對', confirmed: '已入帳', failed: '辨識失敗', returned: '退回重拍' };
 var staged = [];   // [{blob, url}]
 var flushing = false;
+var sending = false;     // 送出鈕處理中（防連點）
+var batchCid = null;     // 同一批照片只產生一次 client_id；送出成功（已落 IndexedDB）才換新的
 
 /* ---------- IndexedDB ---------- */
 var dbp;
@@ -170,7 +172,7 @@ $('pickBtn').onclick = function () { $('pick').click(); };
 async function addFiles(files) {
   showMsg('');
   for (var i = 0; i < files.length; i++) {
-    try { var b = await resize(files[i]); staged.push({ blob: b, url: URL.createObjectURL(b) }); }
+    try { var b = await resize(files[i]); if (!batchCid) batchCid = uuid4(); staged.push({ blob: b, url: URL.createObjectURL(b) }); }
     catch (e) { showMsg(e.message, 'err'); }
   }
   renderThumbs();
@@ -183,19 +185,26 @@ function renderThumbs() {
   Array.prototype.forEach.call($('thumbs').querySelectorAll('button'), function (b) {
     b.onclick = function () { var s = staged.splice(+b.dataset.i, 1)[0]; URL.revokeObjectURL(s.url); renderThumbs(); };
   });
+  if (!staged.length && !sending) batchCid = null;
   checkSend();
 }
-function checkSend() { $('sendBtn').disabled = !(staged.length && vendorValue()); }
+function checkSend() { $('sendBtn').disabled = sending || !(staged.length && vendorValue()); }
 
 $('sendBtn').onclick = async function () {
+  if (sending) return;                       // 防連點：處理中一律忽略
   var v = vendorValue(); if (!v || !staged.length) return;
-  var rec = { client_id: uuid4(), vendor_id: v.vendor_id || null, vendor_name: v.vendor_name || null,
-              photos: staged.map(function (s) { return s.blob; }), created: Date.now() };
-  try { await dbPut(rec); }   // 先寫 IndexedDB 再送
-  catch (e) { showMsg('手機無法暫存照片，請確認不是無痕模式', 'err'); return; }
-  staged.forEach(function (s) { URL.revokeObjectURL(s.url); }); staged = []; renderThumbs();
-  showMsg('已存在手機，傳送中…', 'info');
-  await updatePending(); await flush();
+  sending = true; $('sendBtn').disabled = true;
+  var batch = staged, cid = batchCid || (batchCid = uuid4());
+  staged = [];                               // 先清畫面上的待送，再寫 IndexedDB
+  try {
+    var rec = { client_id: cid, vendor_id: v.vendor_id || null, vendor_name: v.vendor_name || null,
+                photos: batch.map(function (s) { return s.blob; }), created: Date.now() };
+    try { await dbPut(rec); }                // 先寫 IndexedDB 再送；同一批用同一個 client_id，重按也只會覆蓋同一筆
+    catch (e) { staged = batch; showMsg('手機無法暫存照片，請確認不是無痕模式', 'err'); return; }
+    batch.forEach(function (s) { URL.revokeObjectURL(s.url); }); batchCid = null; renderThumbs();
+    showMsg('已存在手機，傳送中…', 'info');
+    await updatePending(); await flush();
+  } finally { sending = false; renderThumbs(); }
 };
 
 /* ---------- 補傳 ---------- */

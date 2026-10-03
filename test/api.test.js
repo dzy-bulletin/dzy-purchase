@@ -5,8 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const { startApp, PASS, uuid } = require('./helpers');
 
-const AI = (o) => JSON.stringify(Object.assign({ vendor: '邦聿肉品', date: '2026-10-01', doc_no: 'A1', lines: [{ name: '絞肉', qty: '300', unit: '', unit_price: '68', amount: '204' }],
-  subtotal: '', tax: '', total: '20400', handwritten_changes: '' }, o));
+const AI = (o) => JSON.stringify(Object.assign({ vendor: '測試肉品行', date: '2026-10-01', doc_no: 'A1', lines: [{ name: '範例肉末', qty: '120', unit: '', unit_price: '45', amount: '54' }],
+  subtotal: '', tax: '', total: '5400', handwritten_changes: '' }, o));
 const today = () => new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
 
 test('健康檢查、資料表數量、重啟不重建', async () => {
@@ -64,8 +64,8 @@ test('上傳：client_id 冪等只一筆、ID 與照片路徑照契約、vendor_
   try {
     const st = await t.login('C01', PASS.SEED_PASS_C01);
     const cid = uuid();
-    const a = await t.upload(st, { clientId: cid, photos: 2, vendor_name: '蔬鄉' });
-    const b = await t.upload(st, { clientId: cid, photos: 2, vendor_name: '蔬鄉' });
+    const a = await t.upload(st, { clientId: cid, photos: 2, vendor_name: '範例蔬果行' });
+    const b = await t.upload(st, { clientId: cid, photos: 2, vendor_name: '範例蔬果行' });
     assert.strictEqual(a.ok, true); assert.strictEqual(b.ok, true); assert.strictEqual(a.data.id, b.data.id);
     assert.match(a.data.id, /^S\d{8}-0001$/); assert.strictEqual(a.data.id.slice(1, 9), today().replace(/-/g, ''));
     assert.strictEqual(t.app.db.prepare('SELECT COUNT(*) c FROM slips').get().c, 1);
@@ -93,20 +93,20 @@ test('上傳：client_id 冪等只一筆、ID 與照片路徑照契約、vendor_
 // 共用：上傳＋跑一次 worker → review
 async function slipInReview(t, aiText, store = 'C01', pw = PASS.SEED_PASS_C01) {
   const st = await t.login(store, pw);
-  const up = await t.upload(st, { vendor_name: '邦聿肉品' });
+  const up = await t.upload(st, { vendor_name: '測試肉品行' });
   assert.ok(up.ok, JSON.stringify(up));
   await t.app.worker.drain();
   return up.data.id;
 }
 
-test('worker：p1 漏零 → AMOUNT_FIXED；品牌隔離；有紅旗標 confirm → RED_FLAGS', async () => {
+test('worker：漏零 → AMOUNT_FIXED；品牌隔離；有紅旗標 confirm → RED_FLAGS', async () => {
   let text = AI();
   const t = await startApp({ recognize: async () => text });
   try {
     const id = await slipInReview(t);
     const accC = await t.login('acc-c', PASS.SEED_PASS_ACC_C), accM = await t.login('acc-m', PASS.SEED_PASS_ACC_M);
     const d = (await t.call('GET', `/slips/${id}`, { token: accC })).data;
-    assert.strictEqual(d.status, 'review'); assert.strictEqual(d.lines[0].amount, 20400);
+    assert.strictEqual(d.status, 'review'); assert.strictEqual(d.lines[0].amount, 5400);
     assert.deepStrictEqual(d.lines[0].flags, ['AMOUNT_FIXED', 'ITEM_UNMAPPED']);
     assert.strictEqual(d.photos.length, 1); assert.ok(d.ai_seconds >= 0);
     // A 品牌會計讀 B 品牌貨單
@@ -124,15 +124,15 @@ test('worker：p1 漏零 → AMOUNT_FIXED；品牌隔離；有紅旗標 confirm 
     assert.strictEqual((await t.call('GET', `/photos/${id}/1`, { token: stM })).error, 'FORBIDDEN');
     // 改成缺單價 → 紅旗標 → confirm 被擋
     const lid = d.lines[0].id;
-    const put = await t.call('PUT', `/slips/${id}`, { token: accC, body: { lines: [{ id: lid, raw_name: '絞肉', qty: 300, unit: '公斤', unit_price: null, amount: null, checked: 1 }] } });
+    const put = await t.call('PUT', `/slips/${id}`, { token: accC, body: { lines: [{ id: lid, raw_name: '範例肉末', qty: 120, unit: '公斤', unit_price: null, amount: null, checked: 1 }] } });
     assert.ok(put.data.lines[0].flags.includes('PRICE_MISSING'));
     const c1 = await t.call('POST', `/slips/${id}/confirm`, { token: accC });
     assert.strictEqual(c1.error, 'RED_FLAGS'); assert.strictEqual(c1.status, 409);
     // 補單價，但總額不符 → SUM_MISMATCH 也擋
-    await t.call('PUT', `/slips/${id}`, { token: accC, body: { total: 999, lines: [{ id: lid, raw_name: '絞肉', qty: 300, unit: '公斤', unit_price: 68, amount: 20400, checked: 1 }] } });
+    await t.call('PUT', `/slips/${id}`, { token: accC, body: { total: 999, lines: [{ id: lid, raw_name: '範例肉末', qty: 120, unit: '公斤', unit_price: 45, amount: 5400, checked: 1 }] } });
     assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: accC })).error, 'RED_FLAGS');
     // 全部處理好 → 入帳成功；audit 有紀錄
-    await t.call('PUT', `/slips/${id}`, { token: accC, body: { total: 20400, lines: [{ id: lid, raw_name: '絞肉', qty: 300, unit: '公斤', unit_price: 68, amount: 20400, checked: 1 }] } });
+    await t.call('PUT', `/slips/${id}`, { token: accC, body: { total: 5400, lines: [{ id: lid, raw_name: '範例肉末', qty: 120, unit: '公斤', unit_price: 45, amount: 5400, checked: 1 }] } });
     const ok = await t.call('POST', `/slips/${id}/confirm`, { token: accC });
     assert.strictEqual(ok.ok, true, JSON.stringify(ok)); assert.strictEqual(ok.data.status, 'confirmed');
     assert.strictEqual((await t.call('PUT', `/slips/${id}`, { token: accC, body: {} })).error, 'CONFLICT');
@@ -147,7 +147,7 @@ test('worker：p1 漏零 → AMOUNT_FIXED；品牌隔離；有紅旗標 confirm 
 });
 
 test('未打勾不能入帳；return 寫入原因且門市看得到；p6 缺單價走紅旗標', async () => {
-  const t = await startApp({ recognize: async () => AI({ lines: [{ name: 'T7帶皮腿肉', qty: '108', unit: '', unit_price: '', amount: '' }], total: '50850' }) });
+  const t = await startApp({ recognize: async () => AI({ lines: [{ name: '範例雞腿', qty: '36', unit: '', unit_price: '', amount: '' }], total: '8888' }) });
   try {
     const id = await slipInReview(t);
     const acc = await t.login('acc-c', PASS.SEED_PASS_ACC_C), st = await t.login('C01', PASS.SEED_PASS_C01);
@@ -155,13 +155,13 @@ test('未打勾不能入帳；return 寫入原因且門市看得到；p6 缺單�
     assert.ok(d.lines[0].flags.includes('PRICE_MISSING')); assert.strictEqual(d.lines[0].unit_price, null);
     assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: acc })).error, 'RED_FLAGS');
     // 補單價（不勾）→ 沒紅旗標但未打勾
-    await t.call('PUT', `/slips/${id}`, { token: acc, body: { lines: [{ id: d.lines[0].id, raw_name: 'T7帶皮腿肉', qty: 108, unit_price: 470.83, amount: 50850 }] } });
-    assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: acc })).error, 'RED_FLAGS'); // 108*470.83=50849.64 ≠ 50850
+    await t.call('PUT', `/slips/${id}`, { token: acc, body: { lines: [{ id: d.lines[0].id, raw_name: '範例雞腿', qty: 36, unit_price: 246.89, amount: 8888 }] } });
+    assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: acc })).error, 'RED_FLAGS'); // 36*246.89=8888.04 ≠ 8888
     const r = await t.call('POST', `/slips/${id}/return`, { token: acc, body: { reason: '照片模糊' } });
     assert.strictEqual(r.data.status, 'returned');
     const mine = (await t.call('GET', '/slips?mine=1', { token: st })).data;
     assert.strictEqual(mine[0].status, 'returned'); assert.strictEqual(mine[0].return_reason, '照片模糊');
-    await t.call('PUT', `/slips/${id}`, { token: acc, body: { lines: [{ id: d.lines[0].id, raw_name: 'T7帶皮腿肉', qty: 100, unit_price: 500, amount: 50000 }], total: 50000 } });
+    await t.call('PUT', `/slips/${id}`, { token: acc, body: { lines: [{ id: d.lines[0].id, raw_name: '範例雞腿', qty: 20, unit_price: 400, amount: 8000 }], total: 8000 } });
     assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: acc })).error, 'CONFLICT');   // 沒打勾
   } finally { await t.close(); }
 });
@@ -219,4 +219,148 @@ test('CORS：允許 dzy-bulletin 與 localhost、含 Authorization 與 PUT；其
     assert.strictEqual((await h('http://localhost:5500')).headers.get('access-control-allow-origin'), 'http://localhost:5500');
     assert.strictEqual((await h('https://evil.example')).headers.get('access-control-allow-origin'), null);
   } finally { await t.close(); }
+});
+
+// ---------- 階段關審查修正的測試 ----------
+const reviewSlip = async (t, ai) => {   // 上傳＋辨識＋回傳 {id, acc, d}
+  const id = await slipInReview(t);
+  const acc = await t.login('acc-c', PASS.SEED_PASS_ACC_C);
+  return { id, acc, d: (await t.call('GET', `/slips/${id}`, { token: acc })).data };
+};
+const LN = (id, o) => Object.assign({ id, raw_name: '範例肉末', qty: 120, unit: '公斤', unit_price: 45, amount: 5400, checked: 1 }, o);
+
+test('#2 confirm 要求總額與每列數量／單價／金額，缺值就擋', async () => {
+  const t = await startApp({ recognize: async () => AI() });
+  try {
+    const { id, acc, d } = await reviewSlip(t);
+    const lid = d.lines[0].id;
+    // 總額清掉 → 紅旗標 SUM_MISMATCH，confirm 被擋
+    const p1 = await t.call('PUT', `/slips/${id}`, { token: acc, body: { total: null, lines: [LN(lid)] } });
+    assert.ok(p1.data.flags.includes('SUM_MISMATCH'));
+    assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: acc })).error, 'RED_FLAGS');
+    // 新增一列只有數量單價、金額空 → 該列金額遺失，不可入帳
+    const p2 = await t.call('PUT', `/slips/${id}`, { token: acc, body: { total: 5400, lines: [LN(lid), { raw_name: '新列', qty: 3, unit: '個', unit_price: 100, amount: null, checked: 1 }] } });
+    assert.ok(p2.data.flags.includes('SUM_MISMATCH'));
+    assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: acc })).error, 'RED_FLAGS');
+    // 補齊 → 可入帳（加總 5400+300 = 5700）
+    await t.call('PUT', `/slips/${id}`, { token: acc, body: { total: 5700, lines: [LN(lid), { raw_name: '新列', qty: 3, unit: '個', unit_price: 100, amount: 300, checked: 1 }] } });
+    assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: acc })).data.status, 'confirmed');
+  } finally { await t.close(); }
+});
+
+test('#3 含稅單：未稅合計＋稅額＝總額 → 可入帳，成本以總額（含稅）為準', async () => {
+  const t = await startApp({ recognize: async () => AI({ lines: [{ name: '範例茶葉', qty: '20', unit: '', unit_price: '210', amount: '4200' }], subtotal: '4200', tax: '210', total: '4410' }) });
+  try {
+    const { id, acc, d } = await reviewSlip(t);
+    assert.deepStrictEqual(d.flags, []); assert.strictEqual(d.subtotal, 4200); assert.strictEqual(d.tax, 210); assert.strictEqual(d.total, 4410);
+    await t.call('PUT', `/slips/${id}`, { token: acc, body: { lines: [LN(d.lines[0].id, { raw_name: '範例茶葉', qty: 20, unit_price: 210, amount: 4200 })] } });
+    const r = await t.call('POST', `/slips/${id}/confirm`, { token: acc });
+    assert.strictEqual(r.data.status, 'confirmed'); assert.strictEqual(r.data.total, 4410);
+    // 會計改稅額欄位也被接受；稅額亂填 → 紅
+    await t.call('POST', `/slips/${id}/unconfirm`, { token: acc, body: { reason: 'x' } });
+    const bad = await t.call('PUT', `/slips/${id}`, { token: acc, body: { tax: 999 } });
+    assert.ok(bad.data.flags.includes('SUM_MISMATCH'));
+  } finally { await t.close(); }
+});
+
+test('#6 負數與 0 的數量／單價／金額／總額一律 BAD_INPUT；稅額可 0 不可負', async () => {
+  const t = await startApp({ recognize: async () => AI() });
+  try {
+    const { id, acc, d } = await reviewSlip(t);
+    const lid = d.lines[0].id;
+    for (const o of [{ qty: -10 }, { qty: 0 }, { unit_price: 0 }, { unit_price: -5 }, { amount: -50 }, { amount: 0 }]) {
+      const r = await t.call('PUT', `/slips/${id}`, { token: acc, body: { lines: [LN(lid, o)] } });
+      assert.strictEqual(r.error, 'BAD_INPUT', JSON.stringify(o)); assert.strictEqual(r.status, 400);
+    }
+    assert.strictEqual((await t.call('PUT', `/slips/${id}`, { token: acc, body: { total: -50 } })).error, 'BAD_INPUT');
+    assert.strictEqual((await t.call('PUT', `/slips/${id}`, { token: acc, body: { total: 0 } })).error, 'BAD_INPUT');
+    assert.strictEqual((await t.call('PUT', `/slips/${id}`, { token: acc, body: { tax: -1 } })).error, 'BAD_INPUT');
+    assert.strictEqual((await t.call('PUT', `/slips/${id}`, { token: acc, body: { tax: 0 } })).ok, true);
+    // 被拒絕的修改不會留下任何改動
+    assert.strictEqual((await t.call('GET', `/slips/${id}`, { token: acc })).data.lines[0].amount, 5400);
+  } finally { await t.close(); }
+});
+
+test('#7 returned：PUT 回 CONFLICT；要 reopen 才能改，保留退回原因並留 audit', async () => {
+  const t = await startApp({ recognize: async () => AI() });
+  try {
+    const { id, acc, d } = await reviewSlip(t);
+    const st = await t.login('C01', PASS.SEED_PASS_C01);
+    assert.strictEqual((await t.call('POST', `/slips/${id}/return`, { token: acc, body: { reason: '照片模糊' } })).data.status, 'returned');
+    const put = await t.call('PUT', `/slips/${id}`, { token: acc, body: { doc_no: 'X' } });
+    assert.strictEqual(put.error, 'CONFLICT'); assert.strictEqual(put.status, 409);
+    assert.strictEqual(t.app.db.prepare('SELECT status FROM slips WHERE id = ?').get(id).status, 'returned');
+    assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: acc })).error, 'CONFLICT');
+    assert.strictEqual((await t.call('POST', `/slips/${id}/reopen`, { token: st })).error, 'FORBIDDEN');   // 門市不行
+    const accM = await t.login('acc-m', PASS.SEED_PASS_ACC_M);
+    assert.strictEqual((await t.call('POST', `/slips/${id}/reopen`, { token: accM })).error, 'FORBIDDEN'); // 別品牌不行
+    const re = await t.call('POST', `/slips/${id}/reopen`, { token: acc });
+    assert.strictEqual(re.data.status, 'review'); assert.strictEqual(re.data.return_reason, '照片模糊');
+    assert.strictEqual((await t.call('POST', `/slips/${id}/reopen`, { token: acc })).error, 'CONFLICT');  // 只有 returned 能 reopen
+    assert.strictEqual((await t.call('PUT', `/slips/${id}`, { token: acc, body: { doc_no: 'X' } })).ok, true);
+    const acts = t.app.db.prepare('SELECT action FROM audit WHERE slip_id = ? ORDER BY id').all(id).map((r) => r.action);
+    assert.deepStrictEqual(acts, ['upload', 'recognize', 'return', 'reopen', 'edit']);
+    assert.strictEqual((await t.call('GET', '/review?status=returned', { token: acc })).data.length, 0);
+  } finally { await t.close(); }
+});
+
+test('#9 日期讀不出：flags 仍是 DATE_FIXED，date_note 如實說「日期讀不出，暫用拍照日」', async () => {
+  let date = '';
+  const t = await startApp({ recognize: async () => AI({ date }) });
+  try {
+    const a = await reviewSlip(t);
+    assert.ok(a.d.flags.includes('DATE_FIXED')); assert.strictEqual(a.d.date_note, '日期讀不出，暫用拍照日');
+    date = '2020-09-30';
+    const st = await t.login('C01', PASS.SEED_PASS_C01); await t.upload(st); await t.app.worker.drain();
+    const list = (await t.call('GET', '/review', { token: a.acc })).data;
+    const other = list.find((x) => x.id !== a.id);
+    const d2 = (await t.call('GET', `/slips/${other.id}`, { token: a.acc })).data;
+    assert.ok(d2.flags.includes('DATE_FIXED')); assert.match(d2.date_note, /年份離拍照日太遠/);
+  } finally { await t.close(); }
+});
+
+test('#12 會計清空手寫說明 → HANDWRITTEN 旗標移除；重新填就回來', async () => {
+  const t = await startApp({ recognize: async () => AI({ handwritten_changes: '加一件範例商品 333' }) });
+  try {
+    const { id, acc, d } = await reviewSlip(t);
+    assert.ok(d.flags.includes('HANDWRITTEN'));
+    const p = await t.call('PUT', `/slips/${id}`, { token: acc, body: { handwritten_note: '' } });
+    assert.ok(!p.data.flags.includes('HANDWRITTEN')); assert.strictEqual(p.data.handwritten_note, null); assert.strictEqual(p.data.total_handwritten, 0);
+    assert.ok((await t.call('PUT', `/slips/${id}`, { token: acc, body: { handwritten_note: '又寫了' } })).data.flags.includes('HANDWRITTEN'));
+  } finally { await t.close(); }
+});
+
+test('#11 worker：outer 錯誤（記錄寫入失敗）不會卡在 recognizing，重新排隊後也能辨識', async () => {
+  const t = await startApp({ recognize: async () => { throw new Error('boom'); } });
+  try {
+    const st = await t.login('C01', PASS.SEED_PASS_C01);
+    const up = await t.upload(st);
+    t.app.db.exec("CREATE TRIGGER no_attempts BEFORE UPDATE OF attempts ON slips BEGIN SELECT RAISE(ABORT, 'db boom'); END;");   // 原本會讓這張卡在 recognizing
+    await t.app.worker.drain();
+    assert.strictEqual(t.app.db.prepare('SELECT status FROM slips WHERE id = ?').get(up.data.id).status, 'failed');
+    t.app.db.exec('DROP TRIGGER no_attempts');
+    // 卡住（recognizing 殘留）的貨單：下一輪 drain 會自己撿回來，不必重啟
+    const up2 = await t.upload(st);
+    t.app.db.prepare("UPDATE slips SET status = 'recognizing' WHERE id = ?").run(up2.data.id);
+    await t.app.worker.drain();
+    assert.notStrictEqual(t.app.db.prepare('SELECT status FROM slips WHERE id = ?').get(up2.data.id).status, 'recognizing');
+  } finally { await t.close(); }
+});
+
+test('#11 worker：單張等待時間可設定（OLLAMA_TIMEOUT_S，預設 300 秒），逾時就標 failed', async () => {
+  const { loadConfig } = require('../server/config');
+  assert.strictEqual(loadConfig({ PURCHASE_NO_DOTENV: '1' }).OLLAMA_TIMEOUT_MS, 300000);
+  assert.strictEqual(loadConfig({ OLLAMA_TIMEOUT_S: '0.2' }).OLLAMA_TIMEOUT_MS, 200);
+  const http = require('http');
+  const hang = http.createServer(() => { /* 永遠不回應 */ });
+  await new Promise((r) => hang.listen(0, '127.0.0.1', r));
+  const t = await startApp({ cfg: { OLLAMA_URL: `http://127.0.0.1:${hang.address().port}`, OLLAMA_TIMEOUT_MS: 200 } });
+  try {
+    const st = await t.login('C01', PASS.SEED_PASS_C01);
+    const up = await t.upload(st);
+    const t0 = Date.now();
+    await t.app.worker.drain();
+    const s = t.app.db.prepare('SELECT status, attempts, error FROM slips WHERE id = ?').get(up.data.id);
+    assert.strictEqual(s.status, 'failed'); assert.strictEqual(s.attempts, 3); assert.ok(Date.now() - t0 < 5000, '應在數秒內結束');
+  } finally { hang.closeAllConnections(); hang.close(); await t.close(); }
 });

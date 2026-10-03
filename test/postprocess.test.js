@@ -24,7 +24,7 @@ test('DATE_FIXED：年份離拍照日太遠 → 改成拍照日年份', () => {
   assert.strictEqual(r.doc_date, '2026-09-30');
   assert.deepStrictEqual(r.flags, ['DATE_FIXED']);
 });
-test('DATE_FIXED：日期讀不出（如只有年月）→ 用拍照日', () => {
+test('DATE_FIXED：日期讀不出（如只有年月）→ 暫用拍照日', () => {
   const r = postprocess(mk({ date: '2026-09' }), SHOT, mapped);
   assert.strictEqual(r.doc_date, SHOT);
   assert.ok(r.flags.includes('DATE_FIXED'));
@@ -34,11 +34,11 @@ test('60 天內的日期不動', () => {
   assert.strictEqual(postprocess(mk({ date: '2026-08-10' }), SHOT, mapped).doc_date, '2026-08-10');
 });
 
-test('p1 類漏零：300×68 讀成 204 → 20400 並標 AMOUNT_FIXED（黃）', () => {
-  const r = postprocess(mk({ lines: [L('絞肉', '300', '68', '204')], total: '20400' }), SHOT, mapped);
-  assert.strictEqual(r.lines[0].amount, 20400);
+test('漏零：120×45 讀成 54 → 5400 並標 AMOUNT_FIXED（黃）', () => {
+  const r = postprocess(mk({ lines: [L('範例肉末', '120', '45', '54')], total: '5400' }), SHOT, mapped);
+  assert.strictEqual(r.lines[0].amount, 5400);
   assert.deepStrictEqual(r.lines[0].flags, ['AMOUNT_FIXED']);
-  assert.deepStrictEqual(r.flags, []);                      // 加總 20400 = 總額，沒有 SUM_MISMATCH
+  assert.deepStrictEqual(r.flags, []);                      // 加總 5400 = 總額，沒有 SUM_MISMATCH
 });
 
 test('AMOUNT_MISMATCH（紅）：對不起來又不是漏零，不改', () => {
@@ -53,10 +53,10 @@ test('金額缺但有數量與單價 → 補算，不標旗標', () => {
   assert.deepStrictEqual(r.lines[0].flags, []);
 });
 
-test('p6 類缺單價：PRICE_MISSING（紅），不填入', () => {
-  const r = postprocess(mk({ lines: [L('T7帶皮腿肉', '108', '', ''), L('空籃', '11', '', '')], total: '50850' }), SHOT, mapped);
+test('缺單價：PRICE_MISSING（紅），不填入', () => {
+  const r = postprocess(mk({ lines: [L('範例雞腿', '36', '', ''), L('範例空籃', '11', '', '')], total: '8888' }), SHOT, mapped);
   for (const l of r.lines) { assert.ok(l.flags.includes('PRICE_MISSING')); assert.strictEqual(l.unit_price, null); }
-  assert.deepStrictEqual(r.flags, []);                      // 有列沒金額 → 不做加總比對
+  assert.deepStrictEqual(r.flags, ['SUM_MISMATCH']);        // 有列沒金額：缺值本身就是紅，不跳過檢核
 });
 
 test('SUM_MISMATCH（紅）：各列加總 ≠ 總額', () => {
@@ -64,15 +64,15 @@ test('SUM_MISMATCH（紅）：各列加總 ≠ 總額', () => {
   assert.deepStrictEqual(r.flags, ['SUM_MISMATCH']);
 });
 test('加總 + 稅額 = 總額 不算 SUM_MISMATCH', () => {
-  const r = postprocess(mk({ lines: [L('a', '30', '170', '5100')], tax: '255', total: '5355' }), SHOT, mapped);
+  const r = postprocess(mk({ lines: [L('a', '20', '210', '4200')], tax: '210', total: '4410' }), SHOT, mapped);
   assert.deepStrictEqual(r.flags, []);
 });
 
 test('HANDWRITTEN（黃）：有手寫說明；「無」不算', () => {
-  const r = postprocess(mk({ handwritten_changes: '加一桶豬油 1600' }), SHOT, mapped);
+  const r = postprocess(mk({ handwritten_changes: '加一件範例商品 333' }), SHOT, mapped);
   assert.deepStrictEqual(r.flags, ['HANDWRITTEN']);
   assert.strictEqual(r.total_handwritten, 1);
-  assert.strictEqual(r.handwritten_note, '加一桶豬油 1600');
+  assert.strictEqual(r.handwritten_note, '加一件範例商品 333');
   assert.deepStrictEqual(postprocess(mk({ handwritten_changes: '無' }), SHOT, mapped).flags, []);
 });
 
@@ -98,4 +98,38 @@ test('evaluate 重算：保留 AMOUNT_FIXED／DATE_FIXED 等歷史旗標，重�
   const r = evaluate({ total: 100, flags: ['DATE_FIXED'] }, [{ qty: 1, unit_price: 100, amount: 100, flags: ['AMOUNT_FIXED', 'PRICE_MISSING'], raw_name: 'a' }], mapped);
   assert.deepStrictEqual(r.lines[0].flags, ['AMOUNT_FIXED']);
   assert.deepStrictEqual(r.flags, ['DATE_FIXED']);
+});
+
+test('#2 缺總額或任一列缺金額 → SUM_MISMATCH（不可跳過）', () => {
+  assert.deepStrictEqual(postprocess(mk({ lines: [L('a', '1', '10', '10')], total: '' }), SHOT, mapped).flags, ['SUM_MISMATCH']);
+  assert.deepStrictEqual(evaluate({ total: 10 }, [{ qty: 1, unit_price: 10, amount: 10, flags: [] }, { qty: 3, unit_price: 100, amount: null, flags: [] }], mapped).flags, ['SUM_MISMATCH']);
+});
+
+test('#6 postprocess：0／負數的數量、單價、金額視為讀不出', () => {
+  const r = postprocess(mk({ lines: [L('a', '0', '-5', '0')], total: '0' }), SHOT, mapped);
+  assert.strictEqual(r.lines[0].qty, null); assert.strictEqual(r.lines[0].unit_price, null); assert.strictEqual(r.lines[0].amount, null); assert.strictEqual(r.total, null);
+  assert.ok(r.lines[0].flags.includes('PRICE_MISSING'));
+});
+
+test('#9 fixDate 讀不出時 reason=unreadable；離太遠 reason=far', () => {
+  assert.strictEqual(fixDate('', SHOT).reason, 'unreadable');
+  assert.strictEqual(fixDate('2025-09-30', SHOT).reason, 'far');
+});
+
+test('#10 跨年：12/30 的單 1/2 才拍，年份讀錯 → 取前一年的 12/30，不是拍照年', () => {
+  for (const raw of ['2025-12-30', '2027-12-30', '2020-12-30']) {
+    const r = fixDate(raw, '2027-01-02');
+    assert.strictEqual(r.date, '2026-12-30', raw); assert.strictEqual(r.fixed, true);
+  }
+  assert.strictEqual(postprocess(mk({ date: '2026-12-30' }), '2027-01-02', mapped).doc_date, '2026-12-30');   // 60 天內不動
+  // 今年的 12/30 比拍照日晚太多 → 取前一年
+  assert.strictEqual(fixDate('2024-12-30', '2026-06-01').date, '2025-12-30');
+  assert.strictEqual(fixDate('2025-05-30', '2026-06-01').date, '2026-05-30');
+});
+
+test('#12 HANDWRITTEN 依 handwritten_note 重算：清空即移除', () => {
+  const lines = [{ qty: 1, unit_price: 10, amount: 10, flags: [], raw_name: 'a' }];
+  assert.deepStrictEqual(evaluate({ total: 10, handwritten_note: '加一項', flags: ['HANDWRITTEN'] }, lines, mapped).flags, ['HANDWRITTEN']);
+  assert.deepStrictEqual(evaluate({ total: 10, handwritten_note: '', flags: ['HANDWRITTEN'] }, lines, mapped).flags, []);
+  assert.deepStrictEqual(evaluate({ total: 10, handwritten_note: null, flags: ['HANDWRITTEN'] }, lines, mapped).flags, []);
 });

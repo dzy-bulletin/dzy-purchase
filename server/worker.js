@@ -14,11 +14,12 @@ const PROMPT = `這是一張台灣餐廳收到的廠商貨單（出貨單／銷�
 {"vendor":"開單廠商（印在抬頭的公司名，不是客戶名稱）","date":"照單上原樣抄寫","doc_no":"單號","lines":[{"name":"品名","qty":"數量","unit":"單位","unit_price":"單價","amount":"金額"}],"subtotal":"未稅合計","tax":"稅額","total":"總計（有手寫修正就用手寫的）","handwritten_changes":"手寫修改說明"}
 所有值一律用字串（加雙引號），數字不要千分位逗號。看不清楚填空字串，不要猜。`;
 
-// 長邊縮到 1600px（macOS sips；沒有就用原圖，Ollama 自己也會縮）
+const MAX_EDGE = 16 * 100;   // 長邊上限（像素）
+// 長邊縮到 MAX_EDGE（macOS sips；沒有就用原圖，Ollama 自己也會縮）
 function shrink(file) {
   return new Promise((resolve) => {
     const tmp = path.join(os.tmpdir(), `purchase-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`);
-    execFile('sips', ['-Z', '1600', file, '--out', tmp], { timeout: 30000 }, (err) => {
+    execFile('sips', ['-Z', String(MAX_EDGE), file, '--out', tmp], { timeout: 30000 }, (err) => {
       if (err) return resolve(fs.readFileSync(file));
       try { const b = fs.readFileSync(tmp); fs.unlinkSync(tmp); resolve(b); } catch (e) { resolve(fs.readFileSync(file)); }
     });
@@ -58,6 +59,8 @@ function createWorker({ db, cfg, recognize, log }) {
 
   function claim() {
     return db.tx(() => {
+      // 處理全部串成一條鏈，輪到這裡時不可能有別張正在辨識：殘留的 recognizing 一定是卡住的，重新排隊
+      db.prepare("UPDATE slips SET status = 'queued' WHERE status = 'recognizing'").run();
       const s = db.prepare("SELECT * FROM slips WHERE status = 'queued' ORDER BY uploaded_at, id LIMIT 1").get();
       if (!s) return null;
       db.prepare("UPDATE slips SET status = 'recognizing', error = NULL WHERE id = ?").run(s.id);
@@ -88,33 +91,44 @@ function createWorker({ db, cfg, recognize, log }) {
     });
   }
 
+  // 任何錯誤路徑都不可把貨單留在 recognizing：外層兜底改標 failed
+  function markFailed(id, msg) {
+    const m = String(msg || '').slice(0, 500);
+    try {
+      db.tx(() => {
+        db.prepare("UPDATE slips SET status = 'failed', error = ? WHERE id = ?").run(m, id);
+        audit(db, 'system:worker', 'recognize_failed', id, null, { error: m });
+      });
+    } catch (e) {
+      try { db.prepare("UPDATE slips SET status = 'failed', error = ? WHERE id = ?").run(m, id); } catch (e2) { say('[worker] markFailed error ' + e2.message); }
+    }
+  }
+
   async function processOne() {
     const slip = claim();
     if (!slip) return false;
-    const files = db.prepare('SELECT path FROM slip_photos WHERE slip_id = ? ORDER BY seq').all(slip.id).map((p) => photoFile(cfg, p.path));
     let lastErr = '';
-    for (let attempt = 1; attempt <= 3; attempt++) {       // 第 1 次＋重試 2 次
-      const t0 = Date.now();
-      try {
-        const text = await rec(files, slip);
-        saveResult(slip, text, (Date.now() - t0) / 1000);
-        jobLog(db, 'recognize', true, `${slip.id} attempt=${attempt} ${Math.round((Date.now() - t0) / 1000)}s`);
-        say(`[worker] ${slip.id} -> review (${Math.round((Date.now() - t0) / 1000)}s)`);
-        return true;
-      } catch (e) {
-        lastErr = String((e && e.cause && e.cause.code) || '') + ' ' + String((e && e.message) || e);
-        lastErr = lastErr.trim();
-        db.prepare('UPDATE slips SET attempts = ? WHERE id = ?').run(attempt, slip.id);
-        jobLog(db, 'recognize', false, `${slip.id} attempt=${attempt} ${lastErr}`);
-        say(`[worker] ${slip.id} attempt ${attempt} failed: ${lastErr}`);
-        if (attempt < 3 && !stopped) await new Promise((r) => setTimeout(r, cfg.RETRY_DELAY_MS));
-        else break;
+    try {
+      const files = db.prepare('SELECT path FROM slip_photos WHERE slip_id = ? ORDER BY seq').all(slip.id).map((p) => photoFile(cfg, p.path));
+      for (let attempt = 1; attempt <= 3; attempt++) {       // 第 1 次＋重試 2 次
+        const t0 = Date.now();
+        try {
+          const text = await rec(files, slip);
+          saveResult(slip, text, (Date.now() - t0) / 1000);
+          try { jobLog(db, 'recognize', true, `${slip.id} attempt=${attempt} ${Math.round((Date.now() - t0) / 1000)}s`); } catch (e3) { /* 已存好，記錄失敗不重來 */ }
+          say(`[worker] ${slip.id} -> review (${Math.round((Date.now() - t0) / 1000)}s)`);
+          return true;
+        } catch (e) {
+          lastErr = String((e && e.cause && e.cause.code) || '') + ' ' + String((e && e.message) || e);
+          lastErr = lastErr.trim();
+          try { db.prepare('UPDATE slips SET attempts = ? WHERE id = ?').run(attempt, slip.id); jobLog(db, 'recognize', false, `${slip.id} attempt=${attempt} ${lastErr}`); } catch (e2) { /* 記錄失敗不影響後續 */ }
+          say(`[worker] ${slip.id} attempt ${attempt} failed: ${lastErr}`);
+          if (attempt < 3 && !stopped) await new Promise((r) => setTimeout(r, cfg.RETRY_DELAY_MS));
+          else break;
+        }
       }
-    }
-    db.tx(() => {
-      db.prepare("UPDATE slips SET status = 'failed', error = ? WHERE id = ?").run(lastErr.slice(0, 500), slip.id);
-      audit(db, 'system:worker', 'recognize_failed', slip.id, null, { error: lastErr.slice(0, 500) });
-    });
+    } catch (e) { lastErr = 'worker: ' + String((e && e.message) || e); }
+    markFailed(slip.id, lastErr || 'unknown');
     return true;
   }
 

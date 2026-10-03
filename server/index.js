@@ -41,12 +41,21 @@ function makeApp(cfg, opts) {
       'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS', 'Access-Control-Max-Age': '600' } : {};
   }
 
-  const num = (v, field) => {
+  // mode: 'pos'＝必須 > 0（數量／單價／金額／總額；P1 不允許負數與 0，退貨之後再議）、'nonneg'＝稅額可為 0
+  const num = (v, field, mode) => {
     if (v === null || v === undefined || v === '') return null;
     const n = parseNum(v);
     if (n === null) throw new ApiError('BAD_INPUT', `${field} 不是數字`);
+    if (mode === 'nonneg' ? n < 0 : n <= 0) throw new ApiError('BAD_INPUT', `${field} 必須${mode === 'nonneg' ? '大於或等於' : '大於'} 0`);
     return n;
   };
+  // DATE_FIXED 的如實說明：讀不出來 vs 離拍照日太遠（由 ai_raw 判斷）
+  function dateNote(s) {
+    if (!parseFlags(s.flags).includes('DATE_FIXED')) return null;
+    let raw = null; try { raw = JSON.parse(s.ai_raw || 'null'); } catch (e) { /* ignore */ }
+    if (raw && typeof raw === 'object' && !parseDate(raw.date)) return '日期讀不出，暫用拍照日';
+    return '年份離拍照日太遠，已改用拍照日附近的年份';
+  }
 
   function slipRow(id) {
     const s = db.prepare('SELECT * FROM slips WHERE id = ?').get(id);
@@ -80,7 +89,7 @@ function makeApp(cfg, opts) {
 
   function detail(s) {
     const o = summary(s);
-    o.doc_date = s.doc_date; o.subtotal = s.subtotal; o.tax = s.tax; o.total_handwritten = s.total_handwritten ? 1 : 0;
+    o.date_note = dateNote(s); o.doc_date = s.doc_date; o.subtotal = s.subtotal; o.tax = s.tax; o.total_handwritten = s.total_handwritten ? 1 : 0;
     o.handwritten_note = s.handwritten_note; o.confirmed_by = s.confirmed_by; o.ai_model = s.ai_model; o.ai_seconds = s.ai_seconds; o.attempts = s.attempts;
     o.photos = db.prepare('SELECT seq FROM slip_photos WHERE slip_id = ? ORDER BY seq').all(s.id).map((p) => ({ seq: p.seq, url: `${PREFIX}/photos/${s.id}/${p.seq}` }));
     o.lines = linesOf(s.id).map((l) => ({ id: l.id, seq: l.seq, raw_name: l.raw_name, item_id: l.item_id, qty: l.qty, unit: l.unit, unit_price: l.unit_price,
@@ -93,7 +102,7 @@ function makeApp(cfg, opts) {
   function recheck(s) {
     const lines = linesOf(s.id);
     const ctx = makeCtx(db, s.brand_id, s.vendor_id);
-    const r = evaluate({ total: s.total, subtotal: s.subtotal, tax: s.tax, flags: parseFlags(s.flags) }, lines, ctx);
+    const r = evaluate({ total: s.total, subtotal: s.subtotal, tax: s.tax, handwritten_note: s.handwritten_note, flags: parseFlags(s.flags) }, lines, ctx);
     const up = db.prepare('UPDATE slip_lines SET flags = ? WHERE id = ?');
     r.lines.forEach((l) => up.run(JSON.stringify(l.flags), l.id));
     db.prepare('UPDATE slips SET flags = ? WHERE id = ?').run(JSON.stringify(r.flags), s.id);
@@ -223,7 +232,7 @@ function makeApp(cfg, opts) {
     const b = parseJson(await readBody(req, 1024 * 1024));
     return db.tx(() => {
       const s = accessSlip(p, m[1]);
-      if (!['review', 'failed', 'returned'].includes(s.status)) throw new ApiError('CONFLICT', s.status === 'confirmed' ? '已入帳的貨單要先取消入帳才能修改' : '這張貨單目前不能修改');
+      if (!['review', 'failed'].includes(s.status)) throw new ApiError('CONFLICT', s.status === 'confirmed' ? '已入帳的貨單要先取消入帳才能修改' : s.status === 'returned' ? '已退回的貨單要先「重新開放」才能修改' : '這張貨單目前不能修改');
       const before = snapshot(s);
       const set = {};
       if (b.vendor_id === undefined && b.vendor_name !== undefined) {      // vendor_name → 解析成 vendor_id，對不到存原字串
@@ -246,10 +255,14 @@ function makeApp(cfg, opts) {
         if (b.doc_date !== s.doc_date) set.flags = JSON.stringify(parseFlags(s.flags).filter((f) => f !== 'DATE_FIXED'));
       }
       if (b.doc_no !== undefined) set.doc_no = b.doc_no == null ? null : String(b.doc_no).slice(0, 60);
-      if (b.total !== undefined) set.total = num(b.total, 'total');
-      if (b.tax !== undefined) set.tax = num(b.tax, 'tax');
-      if (b.subtotal !== undefined) set.subtotal = num(b.subtotal, 'subtotal');
-      if (b.handwritten_note !== undefined) set.handwritten_note = b.handwritten_note == null ? null : String(b.handwritten_note).slice(0, 500);
+      if (b.total !== undefined) set.total = num(b.total, 'total', 'pos');
+      if (b.tax !== undefined) set.tax = num(b.tax, 'tax', 'nonneg');
+      if (b.subtotal !== undefined) set.subtotal = num(b.subtotal, 'subtotal', 'pos');
+      if (b.handwritten_note !== undefined) {
+        const hn = b.handwritten_note == null ? '' : String(b.handwritten_note).trim().slice(0, 500);
+        set.handwritten_note = hn || null;
+        if (!hn) set.total_handwritten = 0;                              // 清空說明＝取消手寫標記（旗標由 recheck 重算移除）
+      }
       const cols = Object.keys(set);
       if (cols.length) db.prepare(`UPDATE slips SET ${cols.map((c) => c + ' = ?').join(', ')} WHERE id = ?`).run(...cols.map((c) => set[c]), s.id);
       if (b.lines !== undefined) {
@@ -259,7 +272,7 @@ function makeApp(cfg, opts) {
         b.lines.forEach((l, i) => {
           if (!l || typeof l !== 'object') throw new ApiError('BAD_INPUT', 'lines 格式錯誤');
           const nl = { raw_name: String(l.raw_name == null ? '' : l.raw_name).slice(0, 200), unit: String(l.unit == null ? '' : l.unit).slice(0, 20),
-            qty: num(l.qty, 'qty'), unit_price: num(l.unit_price, 'unit_price'), amount: num(l.amount, 'amount'), item_id: null };
+            qty: num(l.qty, `第 ${i + 1} 列數量`, 'pos'), unit_price: num(l.unit_price, `第 ${i + 1} 列單價`, 'pos'), amount: num(l.amount, `第 ${i + 1} 列金額`, 'pos'), item_id: null };
           if (l.item_id) {
             const it = db.prepare('SELECT id FROM items WHERE id = ? AND brand_id = ?').get(Number(l.item_id), s.brand_id);
             if (!it) throw new ApiError('BAD_INPUT', 'item_id 不存在或不屬於這個品牌');
@@ -282,7 +295,7 @@ function makeApp(cfg, opts) {
         });
         for (const id of old.keys()) if (!keep.has(id)) db.prepare('DELETE FROM slip_lines WHERE id = ?').run(id);
       }
-      if (s.status !== 'review') db.prepare("UPDATE slips SET status = 'review', error = NULL, return_reason = NULL WHERE id = ?").run(s.id);
+      if (s.status !== 'review') db.prepare("UPDATE slips SET status = 'review', error = NULL WHERE id = ?").run(s.id);
       const cur = slipRow(s.id);
       recheck(cur);
       const after = snapshot(slipRow(s.id));
@@ -300,6 +313,9 @@ function makeApp(cfg, opts) {
     const cur = slipRow(s.id);
     if (!cur.doc_date) throw new ApiError('BAD_INPUT', '缺少進貨日期');
     if (!r.lines.length) throw new ApiError('BAD_INPUT', '沒有品項明細');
+    if (cur.total == null) throw new ApiError('BAD_INPUT', '缺少總額');
+    const miss = r.lines.findIndex((l) => l.qty == null || l.unit_price == null || l.amount == null);
+    if (miss >= 0) throw new ApiError('BAD_INPUT', `第 ${miss + 1} 列的數量、單價、金額都要填`);
     if (r.lines.some((l) => !l.checked)) throw new ApiError('CONFLICT', '還有明細列沒打勾');
     db.prepare("UPDATE slips SET status='confirmed', confirmed_at=?, confirmed_by=? WHERE id=?").run(isoNow(), A.whoOf(p), s.id);
     audit(db, A.whoOf(p), 'confirm', s.id, before, snapshot(slipRow(s.id)));
@@ -319,6 +335,16 @@ function makeApp(cfg, opts) {
       return detail(slipRow(s.id));
     });
   });
+
+  // 退回後要重新開放，必須明確動作：回到待核對，保留退回原因，寫 audit
+  route('POST', /^\/slips\/([^/]+)\/reopen$/, ['accountant', 'admin'], async ({ p, m }) => db.tx(() => {
+    const s = accessSlip(p, m[1]);
+    if (s.status !== 'returned') throw new ApiError('CONFLICT', '只有「退回重拍」的貨單可以重新開放');
+    const before = snapshot(s);
+    db.prepare("UPDATE slips SET status='review' WHERE id=?").run(s.id);        // return_reason 保留
+    audit(db, A.whoOf(p), 'reopen', s.id, before, Object.assign(snapshot(slipRow(s.id)), { return_reason: s.return_reason }));
+    return detail(slipRow(s.id));
+  }));
 
   route('POST', /^\/slips\/([^/]+)\/return$/, ['accountant', 'admin'], async ({ req, p, m }) => {
     const b = parseJson(await readBody(req, 64 * 1024));

@@ -20,9 +20,9 @@ const mk = (id, status, vendor, lines, extra = {}) => ({
 const slips = [
   mk('S20261003-0001', 'review', '示範肉品行', [
     { raw_name: '豬頭皮', qty: 10, unit: '斤', unit_price: 50, amount: 600, flags: ['AMOUNT_MISMATCH'] },
-    { raw_name: '鴨掌', qty: 5, unit: '斤', unit_price: 120, amount: 600, flags: ['ITEM_UNMAPPED'] }], { total: 1100, photo_count: 2, photos: ['p4.jpg', 'p6.jpg'] }),
+    { raw_name: '鴨掌', qty: 5, unit: '斤', unit_price: 120, amount: 600, flags: ['ITEM_UNMAPPED'] }], { total: 1234, photo_count: 2, photos: ['p4.jpg', 'p6.jpg'] }),
   mk('S20261003-0002', 'review', '示範蔬果行', [
-    { raw_name: '木耳', qty: 3, unit: '袋', unit_price: null, amount: 450, flags: ['PRICE_MISSING'] },
+    { raw_name: '範例菇類', qty: 3, unit: '袋', unit_price: null, amount: 450, flags: ['PRICE_MISSING'] },
     { raw_name: '高麗菜', qty: 20, unit: '斤', unit_price: 15, amount: 300, flags: ['HANDWRITTEN'] }], { total: 750, handwritten_note: '高麗菜改 20 斤', photos: ['p9.jpg'] }),
   mk('S20261003-0003', 'review', '示範肉品行', [{ raw_name: '五花肉', qty: 4, unit: '斤', unit_price: 100, amount: 400 }], { total: 400, photos: ['p6.jpg'] })
 ];
@@ -93,7 +93,7 @@ const server = http.createServer(async (req, res) => {
     if (!f) return fail(res, 404, 'NOT_FOUND', '沒有這張照片');
     res.writeHead(200, { 'Content-Type': 'image/jpeg', ...cors }); return res.end(fs.readFileSync(path.join(WORK, f)));
   }
-  if ((m = p.match(/^\/slips\/([^/]+)(\/(confirm|unconfirm|return))?$/))) {
+  if ((m = p.match(/^\/slips\/([^/]+)(\/(confirm|unconfirm|return|reopen))?$/))) {
     const s = slips.find(x => x.id === m[1]);
     if (!s) return fail(res, 404, 'NOT_FOUND', '找不到貨單');
     if (role === 'store') return fail(res, 403, 'FORBIDDEN', '無權限');
@@ -110,6 +110,7 @@ const server = http.createServer(async (req, res) => {
       s.status = 'confirmed'; return ok(res, { id: s.id, status: s.status });
     }
     if (m[3] === 'unconfirm') { if (!json().reason) return fail(res, 400, 'BAD_INPUT', '必須填寫原因'); s.status = 'review'; return ok(res, { id: s.id, status: s.status }); }
+    if (m[3] === 'reopen') { if (s.status !== 'returned') return fail(res, 409, 'CONFLICT', '只有退回的貨單可以重新開放'); s.status = 'review'; return ok(res, s); }
     if (m[3] === 'return') { s.status = 'returned'; s.return_reason = json().reason || ''; return ok(res, { id: s.id, status: s.status }); }
   }
   fail(res, 404, 'NOT_FOUND', '找不到路徑 ' + p);

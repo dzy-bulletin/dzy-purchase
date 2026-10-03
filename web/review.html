@@ -62,7 +62,7 @@
 
 <section id="app" class="hidden">
   <div class="top"><h1 id="who">貨單核對</h1>
-    <div class="row"><select id="statusSel" style="width:auto"><option value="review">待核對</option><option value="failed">辨識失敗</option><option value="confirmed">已入帳</option></select>
+    <div class="row"><select id="statusSel" style="width:auto"><option value="review">待核對</option><option value="failed">辨識失敗</option><option value="returned">退回重拍</option><option value="confirmed">已入帳</option></select>
     <button id="reload">重新整理</button><button id="logout">登出</button></div></div>
   <div class="main">
     <div class="side" id="list"></div>
@@ -78,7 +78,7 @@
 var $ = function (id) { return document.getElementById(id); };
 var STATUS_TEXT = { uploaded: '已送出', queued: '排隊中', recognizing: '辨識中', review: '待核對', confirmed: '已入帳', failed: '辨識失敗', returned: '退回重拍' };
 var FLAG = {   // 代碼 → [顏色, 中文原因]
-  DATE_FIXED: ['y', '年份離拍照日太遠，已改成拍照日年份'], AMOUNT_FIXED: ['y', '金額漏零，已改用數量×單價'],
+  DATE_FIXED: ['y', '日期已自動補上（讀不出或年份離拍照日太遠），請對照照片確認'], AMOUNT_FIXED: ['y', '金額漏零，已改用數量×單價'],
   AMOUNT_MISMATCH: ['r', '數量×單價≠金額'], SUM_MISMATCH: ['r', '各列加總≠總額'], PRICE_MISSING: ['r', '缺單價'],
   HANDWRITTEN: ['y', '有手寫修改'], ITEM_UNMAPPED: ['y', '品名還沒對到統一品名'], UNIT_UNCONVERTED: ['y', '這個單位還沒設定換算']
 };
@@ -134,7 +134,7 @@ async function openSlip(id) {
 }
 
 function render() {
-  var d = cur, ro = d.status === 'confirmed';
+  var d = cur, ro = d.status === 'confirmed' || d.status === 'returned';
   var w = $('work');
   w.innerHTML =
     '<div class="photo"><div class="viewer" id="viewer"><img id="vimg" alt="貨單照片"></div>' +
@@ -144,8 +144,12 @@ function render() {
     '<div><label>廠商</label><input id="f_vendor" value="' + esc(d.vendor_name || '') + '" ' + (ro ? 'disabled' : '') + '></div>' +
     '<div><label>日期</label><input id="f_date" value="' + esc(d.doc_date || '') + '" placeholder="YYYY-MM-DD" ' + (ro ? 'disabled' : '') + '></div>' +
     '<div><label>單號</label><input id="f_no" value="' + esc(d.doc_no || '') + '" ' + (ro ? 'disabled' : '') + '></div>' +
-    '<div><label>總額（單據上的）</label><input id="f_total" inputmode="decimal" value="' + (d.total == null ? '' : d.total) + '" ' + (ro ? 'disabled' : '') + '></div></div>' +
-    (d.handwritten_note ? '<div class="hand">手寫說明：' + esc(d.handwritten_note) + (d.total_handwritten != null ? '　（手寫總額 ' + fmt(d.total_handwritten) + '）' : '') + '</div>' : '') +
+    '<div><label>未稅合計（沒有就留空）</label><input id="f_subtotal" inputmode="decimal" value="' + (d.subtotal == null ? '' : d.subtotal) + '" ' + (ro ? 'disabled' : '') + '></div>' +
+    '<div><label>稅額（沒有就留空）</label><input id="f_tax" inputmode="decimal" value="' + (d.tax == null ? '' : d.tax) + '" ' + (ro ? 'disabled' : '') + '></div>' +
+    '<div><label>總額（含稅，入帳以此為準）</label><input id="f_total" inputmode="decimal" value="' + (d.total == null ? '' : d.total) + '" ' + (ro ? 'disabled' : '') + '></div>' +
+    '<div style="grid-column:1/-1"><label>手寫說明（清空＝取消手寫標記）</label><input id="f_hand" value="' + esc(d.handwritten_note || '') + '" ' + (ro ? 'disabled' : '') + '></div></div>' +
+    (d.total_handwritten ? '<div class="hand">總額有手寫修正，請對照照片確認</div>' : '') +
+    (d.status === 'returned' && d.return_reason ? '<div class="msg err">退回原因：' + esc(d.return_reason) + '（要修改請先按「重新開放」）</div>' : '') +
     '<div id="slipWhy" class="why"></div>' +
     '<table><thead><tr><th>品名</th><th>數量</th><th>單位</th><th>單價</th><th>金額</th><th class="chk">勾選</th><th></th></tr></thead><tbody id="tb"></tbody></table>' +
     (ro ? '' : '<button id="addLine" style="margin-top:.5rem">＋ 新增一列</button>') +
@@ -155,9 +159,10 @@ function render() {
 }
 
 function bindHead() {
-  var map = { f_vendor: 'vendor_name', f_date: 'doc_date', f_no: 'doc_no', f_total: 'total' };
+  var map = { f_vendor: 'vendor_name', f_date: 'doc_date', f_no: 'doc_no', f_total: 'total', f_subtotal: 'subtotal', f_tax: 'tax', f_hand: 'handwritten_note' };
+  var numeric = { f_total: 1, f_subtotal: 1, f_tax: 1 };
   Object.keys(map).forEach(function (id) {
-    $(id).oninput = function () { cur[map[id]] = id === 'f_total' ? num(this.value) : this.value; dirty = true; update(); };
+    $(id).oninput = function () { cur[map[id]] = numeric[id] ? num(this.value) : this.value; dirty = true; update(); };
   });
   if ($('addLine')) $('addLine').onclick = function () {
     cur.lines.push({ id: null, seq: cur.lines.length + 1, raw_name: '', qty: null, unit: '', unit_price: null, amount: null, flags: [], checked: 0 });
@@ -195,30 +200,36 @@ function lineFlags(l) {
   else if (l.qty != null && l.amount != null && Math.abs(r2(l.qty * l.unit_price) - l.amount) >= 0.01) f.push('AMOUNT_MISMATCH');
   return f;
 }
+/* 數量、單價、金額都要填且 > 0（後端同規則；缺值本身就是紅） */
+function lineBad(l) { return l.qty == null || l.unit_price == null || l.amount == null || l.qty <= 0 || l.unit_price <= 0 || l.amount <= 0; }
 function calc() {
   var sum = 0, anyAmt = false;
   cur.lines.forEach(function (l) { if (l.amount != null) { sum += l.amount; anyAmt = true; } });
   sum = r2(sum);
-  var sumOk = cur.total != null && Math.abs(sum - cur.total) < 0.01;
-  return { sum: sum, sumOk: sumOk };
+  /* 與後端 evaluate 同規則：缺總額或任一列缺金額＝紅；sum＝total，或 sum＋稅＝total，或 未稅＋稅＝total 且 sum＝未稅 */
+  var near = function (a, b) { return Math.abs(a - b) < 0.01; };
+  var t = cur.total, tax = cur.tax, sub = cur.subtotal;
+  var missing = t == null || !cur.lines.length || cur.lines.some(function (l) { return l.amount == null; });
+  var sumOk = !missing && (near(sum, t) || (tax != null && near(r2(sum + tax), t)) || (sub != null && tax != null && near(sum, sub) && near(r2(sub + tax), t)));
+  return { sum: sum, sumOk: sumOk, missing: missing };
 }
 function update() {
   var c = calc(), reds = 0, unchecked = 0;
   cur.lines.forEach(function (l, i) {
-    var f = lineFlags(l), hasR = f.some(function (x) { return RED[x]; }), hasY = f.length && !hasR;
+    var f = lineFlags(l), bad = lineBad(l), hasR = bad || f.some(function (x) { return RED[x]; }), hasY = f.length && !hasR;
     if (hasR) reds++; if (!l.checked) unchecked++;
     var tr = $('r' + i); if (!tr) return;
     tr.className = hasR ? 'red' : (hasY ? 'yellow' : '');
     var ex = '';
     if (l.qty != null && l.unit_price != null) ex = '<span class="muted">數量×單價＝' + fmt(r2(l.qty * l.unit_price)) + '</span> ';
-    tr.querySelector('[data-why]').innerHTML = ex + f.map(function (x) { var m = FLAG[x] || ['y', x]; return '<span class="' + m[0] + '">' + (m[0] === 'r' ? '紅：' : '黃：') + esc(m[1]) + '</span>'; }).join('　');
+    tr.querySelector('[data-why]').innerHTML = ex + (bad ? '<span class="r">紅：數量、單價、金額都要填且大於 0</span>　' : '') + f.map(function (x) { var m = FLAG[x] || ['y', x]; return '<span class="' + m[0] + '">' + (m[0] === 'r' ? '紅：' : '黃：') + esc(m[1]) + '</span>'; }).join('　');
   });
   var slipRed = !c.sumOk;
   var sf = (cur.flags || []).filter(function (x) { return !RED[x] && x !== 'SUM_MISMATCH'; });
-  $('slipWhy').innerHTML = sf.map(function (x) { var m = FLAG[x] || ['y', x]; return '<span class="y">黃：' + esc(m[1]) + '</span>'; }).join('　');
+  $('slipWhy').innerHTML = sf.map(function (x) { var m = FLAG[x] || ['y', x]; var t = (x === 'DATE_FIXED' && cur.date_note) ? cur.date_note + '，請對照照片確認' : m[1]; return '<span class="y">黃：' + esc(t) + '</span>'; }).join('　');
   $('sum').className = 'sum ' + (c.sumOk ? 'good' : 'bad');
-  $('sum').innerHTML = '各列加總 <b>' + fmt(c.sum) + '</b>　總額 <b>' + (cur.total == null ? '（未填）' : fmt(cur.total)) + '</b>　' +
-    (c.sumOk ? '<b style="color:var(--ok)">相符</b>' : '<b style="color:var(--red)">紅：各列加總≠總額' + (cur.total != null ? '（差 ' + fmt(r2(c.sum - cur.total)) + '）' : '') + '</b>');
+  $('sum').innerHTML = '各列加總 <b>' + fmt(c.sum) + '</b>' + (cur.tax != null ? '　稅額 <b>' + fmt(cur.tax) + '</b>' : '') + '　總額 <b>' + (cur.total == null ? '（未填）' : fmt(cur.total)) + '</b>　' +
+    (c.sumOk ? '<b style="color:var(--ok)">相符</b>' : '<b style="color:var(--red)">紅：' + (c.missing ? '總額或某列金額沒填' : '各列加總（＋稅額）≠總額（差 ' + fmt(r2(c.sum + (cur.tax || 0) - cur.total)) + '）') + '</b>');
   cur._reds = reds + (slipRed ? 1 : 0); cur._unchecked = unchecked;
   var blocked = cur._reds > 0 || unchecked > 0 || !cur.lines.length;
   var b = $('confirmBtn');
@@ -231,6 +242,7 @@ function update() {
 function buildActions() {
   var a = $('actions'), st = cur.status;
   if (st === 'confirmed') { a.innerHTML = '<button id="unconfirmBtn" class="warn">取消入帳</button>'; $('unconfirmBtn').onclick = doUnconfirm; return; }
+  if (st === 'returned') { a.innerHTML = '<button id="reopenBtn" class="warn">重新開放（回到待核對）</button><span id="actMsg" class="grow"></span>'; $('reopenBtn').onclick = doReopen; return; }
   a.innerHTML = '<button id="saveBtn">儲存</button><button id="confirmBtn" class="good" disabled>入帳</button><button id="returnBtn" class="warn">退回重拍</button><span id="actMsg" class="grow"></span>';
   $('saveBtn').onclick = function () { save().then(function (ok) { if (ok) say('已儲存', 'ok'); }); };
   $('confirmBtn').onclick = doConfirm;
@@ -238,7 +250,7 @@ function buildActions() {
 }
 function say(t, cls) { var m = $('actMsg'); if (m) m.innerHTML = '<div class="msg ' + cls + '">' + esc(t) + '</div>'; }
 function payload() {
-  return { vendor_name: cur.vendor_name, doc_date: cur.doc_date, doc_no: cur.doc_no, total: cur.total,
+  return { vendor_name: cur.vendor_name, doc_date: cur.doc_date, doc_no: cur.doc_no, total: cur.total, subtotal: cur.subtotal, tax: cur.tax, handwritten_note: cur.handwritten_note || '',
     lines: cur.lines.map(function (l, i) { return { id: l.id, seq: i + 1, raw_name: l.raw_name, qty: l.qty, unit: l.unit, unit_price: l.unit_price, amount: l.amount, checked: l.checked ? 1 : 0 }; }) };
 }
 async function save() {
@@ -258,6 +270,12 @@ async function doReturn() {
   if (reason == null) return;
   try { await API.call('/slips/' + encodeURIComponent(cur.id) + '/return', { method: 'POST', body: { reason: reason } });
     dirty = false; cur = null; $('work').innerHTML = '<div class="detail"><div class="msg ok">已退回門市重拍</div></div>'; loadList(); }
+  catch (e) { say(e.message, 'err'); }
+}
+async function doReopen() {
+  if (!confirm('重新開放後這張會回到待核對，退回原因會保留在紀錄裡。確定？')) return;
+  try { var d = await API.call('/slips/' + encodeURIComponent(cur.id) + '/reopen', { method: 'POST', body: {} });
+    d.lines = (d.lines || []).map(function (l) { return Object.assign({ checked: 0, flags: [] }, l); }); cur = d; dirty = false; render(); loadList(); }
   catch (e) { say(e.message, 'err'); }
 }
 async function doUnconfirm() {

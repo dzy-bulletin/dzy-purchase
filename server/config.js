@@ -28,7 +28,7 @@ function loadConfig(envIn) {
     DATA_DIR: dataDir,
     OLLAMA_URL: (env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, ''),
     MODEL: env.MODEL || 'qwen2.5vl:7b',
-    OLLAMA_TIMEOUT_MS: num(env.OLLAMA_TIMEOUT_S, 900) * 1000,
+    OLLAMA_TIMEOUT_MS: num(env.OLLAMA_TIMEOUT_S, 300) * 1000,       // 單張單次最長等待（秒，可設小數）；P4 以 32B 實測再調
     RETRY_DELAY_MS: env.RETRY_DELAY_MS !== undefined ? Number(env.RETRY_DELAY_MS) : 5000,
     WORKER: env.WORKER !== '0',                       // 測試用：0＝不自動啟動工人
     EXTRA_ORIGINS: (env.ALLOW_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean),
