@@ -284,7 +284,7 @@ function makeApp(cfg, opts) {
             if (seenIds.has(Number(l.id))) throw new ApiError('BAD_INPUT', `明細列 ${l.id} 重複出現`);
             seenIds.add(Number(l.id));
           }
-          const nl = { raw_name: String(l.raw_name == null ? '' : l.raw_name).replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim().slice(0, 200), unit: String(l.unit == null ? '' : l.unit).slice(0, 20),
+          const nl = { raw_name: String(l.raw_name == null ? '' : l.raw_name).replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim().slice(0, 200), unit: String(l.unit == null ? '' : l.unit).replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim().slice(0, 20),
             qty: num(l.qty, `第 ${i + 1} 列數量`, 'pos'), unit_price: num(l.unit_price, `第 ${i + 1} 列單價`, 'pos'), amount: num(l.amount, `第 ${i + 1} 列金額`, 'pos'), item_id: null };
           if (l.item_id) {
             const it = db.prepare('SELECT id, active FROM items WHERE id = ? AND brand_id = ?').get(Number(l.item_id), s.brand_id);

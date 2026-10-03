@@ -593,3 +593,17 @@ test('匯出 legacy.xlsx：admin 未帶品牌也沒指定門市 → BAD_INPUT；
     assert.strictEqual((await t.call('GET', '/vendors?all=1&brand_id=C', { token: k.acc })).status, 200);
   } finally { await t.close(); }
 });
+
+test('#12 PUT unit 去頭尾空白與控制字元：「公斤␣」視同統一單位、不標 UNIT_UNCONVERTED；#14 AI 品名含 tab 與 PUT 正規化一致', async () => {
+  const t = await startQueued();
+  try {
+    const k = await tokens(t);
+    const vA = vendorId(t.app.db, 'C', '測試肉品行'); const hb = itemId(t.app.db, 'C', '測試高麗菜');
+    const id1 = await uploadAndRecognize(t, k.store, vA, AI({ lines: [{ name: '高麗菜\t甲', qty: '20', unit: '公斤', unit_price: '30', amount: '600' }], total: '600' }));
+    const d1 = (await t.call('GET', `/slips/${id1}`, { token: k.acc })).data;
+    assert.strictEqual(d1.lines[0].raw_name, '高麗菜 甲');
+    const p = await t.call('PUT', `/slips/${id1}`, { token: k.acc, body: { lines: [{ id: d1.lines[0].id, raw_name: d1.lines[0].raw_name, unit: '公斤 \t', qty: 20, unit_price: 30, amount: 600, item_id: hb, checked: 1 }] } });
+    assert.strictEqual(p.data.lines[0].unit, '公斤');
+    assert.ok(!p.data.lines[0].flags.includes('UNIT_UNCONVERTED'));
+  } finally { await t.close(); }
+});

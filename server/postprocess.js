@@ -123,7 +123,7 @@ function postprocess(ai, shotDate, ctx) {
       else if (!near(calc, amt) && amt > 0 && calc > amt && Number.isInteger(amt)
                && String(Math.round(calc)).startsWith(String(amt))) { amt = calc; flags.push('AMOUNT_FIXED'); }   // 漏零
     }
-    return { seq: i + 1, raw_name: String(x.name == null ? '' : x.name).trim(), item_id: null, qty, unit: String(x.unit == null ? '' : x.unit).trim(),
+    return { seq: i + 1, raw_name: String(x.name == null ? '' : x.name).replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim(), item_id: null, qty, unit: String(x.unit == null ? '' : x.unit).replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim(),
              unit_price: price, amount: amt, flags, checked: 0, edited_by_human: 0 };
   });
   const r = evaluate(slip, lines, ctx);
