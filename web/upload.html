@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#F3F0E8">
+<meta name="theme-color" content="#FBFBF9">
 <title>貨單上傳</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500&family=Noto+Serif+TC:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&family=Space+Mono:wght@400;700&family=Noto+Sans+TC:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <style>
   /* 手機上傳頁：字大、按鈕 >= 44px（這裡一律 52px） */
   :root{--fs:18px}
-  .wrap{max-width:560px;margin:0 auto;padding:0 1rem 4rem;overflow-x:hidden}
+  .wrap{padding-top:1rem;max-width:560px;margin:0 auto;padding:0 1rem 4rem;overflow-x:hidden}
   #login{overflow-x:hidden}
   .hdr{padding:.5rem 1rem}
   .hdr .ttl{font-size:1.05rem;letter-spacing:.1em}
@@ -20,17 +20,18 @@
   .stack button,.bigbtn{min-height:52px;font-size:1rem}
   select,input{min-height:52px;font-size:1rem}
   .thumbs{display:flex;gap:.5rem;flex-wrap:wrap;margin:.6rem 0}
-  .thumb{position:relative;width:84px;height:84px;border:1px solid var(--line);overflow:hidden;border-radius:var(--radius)}
+  .thumb{position:relative;width:84px;height:84px;background:var(--surface);border:1px solid var(--line);overflow:hidden;border-radius:var(--radius)}
   .thumb img{width:100%;height:100%;object-fit:cover}
   .thumb button{position:absolute;top:0;right:0;min-height:44px;width:44px;padding:0;border:0;border-radius:0;background:rgba(0,0,0,.65);color:#fff;font-size:.9rem}
   .pending{display:flex;align-items:center;gap:.5rem;justify-content:space-between}
   .slip{border-top:1px solid var(--faint);padding:.7rem 0}
   .slip:first-child{border-top:0}
-  .slip.ret{background:var(--red-bg);border:1px solid var(--red);border-left:4px solid var(--red);padding:.7rem;margin:.5rem 0}
+  .slip.ret{background:var(--red-bg);border:1px solid var(--red);border-radius:var(--radius);padding:.7rem;margin:.5rem 0}
   .slip .t{word-break:break-all}
+  .slip .muted{font-family:var(--mono);font-size:.75rem}
   .bigbtn{width:100%;margin-top:.5rem}
   .step{display:flex;align-items:baseline;gap:.6rem}
-  .step b{font-family:var(--serif);font-size:1.5rem;font-weight:400;color:var(--accent)}
+  .step b{font-family:var(--mono);font-size:.8rem;font-weight:700;color:var(--bg);background:var(--ink);border-radius:var(--radius);width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;flex:none}
 </style>
 </head>
 <body>
@@ -250,7 +251,7 @@ async function loadMine() {
       return '<div class="slip' + (ret ? ' ret' : '') + '"><div class="row"><span class="t grow">' + esc(s.vendor_name || '（未指定廠商）') +
         '</span><span class="badge b-' + esc(s.status) + '">' + esc(STATUS_TEXT[s.status] || s.status) + '</span></div>' +
         '<div class="muted">' + esc(s.id) + '　' + esc(twTime(s.uploaded_at)) + '</div>' +
-        (ret ? '<div style="color:var(--red);font-weight:700">請重新拍照上傳這張貨單' + (s.return_reason ? '：' + esc(s.return_reason) : '') + '</div>' : '') + '</div>';
+        (ret ? '<div style="color:var(--red-t);font-weight:600">請重新拍照上傳這張貨單' + (s.return_reason ? '：' + esc(s.return_reason) : '') + '</div>' : '') + '</div>';
     }).join('');
   } catch (e) { box.textContent = '讀不到上傳紀錄：' + e.message; }
 }

@@ -3,28 +3,35 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#F3F0E8">
+<meta name="theme-color" content="#FBFBF9">
 <title>報表</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500&family=Noto+Serif+TC:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&family=Space+Mono:wght@400;700&family=Noto+Sans+TC:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <style>
   .filters{display:flex;gap:.8rem;flex-wrap:wrap;align-items:end;margin-bottom:1rem}
   .filters label{min-width:150px}
-  .big{font-family:var(--serif);font-size:2.2rem;letter-spacing:.04em;font-variant-numeric:tabular-nums}
-  .cat{display:grid;grid-template-columns:5.5rem 1fr 7.5rem 4rem;gap:.8rem;align-items:center;padding:.5rem 0;border-bottom:1px solid var(--faint);font-variant-numeric:tabular-nums}
-  .cat .track{height:10px;background:var(--faint);position:relative}
-  .cat .fill{position:absolute;left:0;top:0;bottom:0;background:var(--accent)}
-  .cat.un .fill{background:var(--yellow)}
-  .cat .n{text-align:right}
+  .big{font-size:2.1rem;font-weight:700;letter-spacing:-.02em;line-height:1.3}
+  .lead{font-size:.78rem;font-weight:500;color:var(--sub)}
+  .filters{padding-bottom:1rem;border-bottom:1px solid var(--line)}
+  .filters label{flex-direction:row;align-items:center;gap:.5rem}
+  .filters input,.filters select{min-height:40px;width:auto}
+  .filters button.primary{background:var(--bg);color:var(--ink);border-color:var(--line)}
+  .filters button.primary:hover:not(:disabled){background:var(--bg);border-color:var(--mute)}
+  .tbl{border:1px solid var(--line);border-radius:var(--card);background:var(--surface);overflow:hidden;margin:.9rem 0}
+  .tbl .hd{padding:.6rem 1rem;background:var(--panel);border-bottom:1px solid var(--line);font-size:.78rem;font-weight:500;color:var(--sub)}
+  .cat{display:grid;grid-template-columns:1fr 8rem 4.5rem;gap:.8rem;align-items:center;padding:.65rem 1rem;border-bottom:1px solid var(--line)}
+  .cat:last-child{border-bottom:0}
+  .cat .n{text-align:right;font-family:var(--mono);font-size:.9rem}
+  .cat.un{background:var(--yellow-bg);color:var(--yellow-t)}
   .two{display:grid;gap:1.2rem;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
   .legend{display:flex;gap:1.2rem;flex-wrap:wrap;font-size:.85rem;margin:.4rem 0}
   .legend span{display:inline-flex;align-items:center;gap:.4rem}
   .legend svg{width:34px;height:10px}
-  .chart{width:100%;height:auto;display:block;background:var(--surface);border:1px solid var(--line)}
-  .chart text{font-family:var(--sans);font-size:11px;fill:var(--sub)}
-  .up{color:var(--red);font-weight:500}
-  .down{color:var(--accent);font-weight:500}
+  .chart{width:100%;height:auto;display:block;background:var(--surface);border:1px solid var(--line);border-radius:var(--card)}
+  .chart text{font-family:var(--mono);font-size:11px;fill:var(--sub)}
+  .up{color:var(--red-t);font-weight:600}
+  .down{color:var(--green-t);font-weight:600}
   tfoot td{border-top:1px solid var(--ink);font-weight:500}
 </style>
 </head>
@@ -94,11 +101,11 @@ async function viewCost() {
   $('body').innerHTML =
     '<div class="filters"><label class="f">月份<input id="fMonth" type="month" value="' + esc(STATE.month) + '"></label>' + storeSel() +
     '<button id="exp" type="button" class="primary">下載會計格式 Excel</button></div><div id="expMsg"></div>' +
-    '<div class="card"><div class="muted">' + esc(STATE.month) + ' 進貨成本合計（含稅）</div><div class="big">$ ' + fmt(total) + '</div></div>' +
-    '<div class="plain"><h2>依類別</h2>' + order.map(function (k) {
+    '<div class="card" style="display:flex;flex-direction:column;gap:.15rem"><span class="lead">' + esc(STATE.month) + ' 進貨成本合計（含稅）</span><span class="big">$' + fmt(total) + '</span></div>' +
+    '<div class="tbl"><div class="hd">依類別</div>' + order.map(function (k) {
       var v = (d.by_category || {})[k] || 0, pct = total ? v / total * 100 : 0;
-      return '<div class="cat' + (k === '未分類' ? ' un' : '') + '"><span>' + k + '</span><span class="track"><span class="fill" style="width:' + pct.toFixed(1) + '%"></span></span><span class="n">$ ' + fmt(v) + '</span><span class="n muted">' + pct.toFixed(1) + '%</span></div>';
-    }).join('') + (((d.by_category || {})['未分類'] || 0) > 0 ? '<p class="y" style="margin:.6rem 0 0;font-size:.88rem">黃：有金額還沒對到統一品名，請到「核對」補對照，成本才會歸到正確類別。</p>' : '') + '</div>' +
+      return '<div class="cat' + (k === '未分類' ? ' un' : '') + '"><span>' + (k === '未分類' ? '未分類（待補品名）' : k) + '</span><span class="n">$' + fmt(v) + '</span><span class="n">' + pct.toFixed(1) + '%</span></div>';
+    }).join('') + (((d.by_category || {})['未分類'] || 0) > 0 ? '<p class="y" style="margin:0;padding:.6rem 1rem;font-size:.85rem;border-top:1px solid var(--line)">琥珀色：有金額還沒對到統一品名，請到「核對」補對照，成本才會歸到正確類別。</p>' : '') + '</div>' +
     '<div class="two"><div class="plain"><h2>依廠商</h2>' + table(['廠商', '金額'], (d.by_vendor || []).map(function (r) { return [esc(r.vendor), fmt(r.amount)]; })) + '</div>' +
     '<div class="plain"><h2>依門市</h2>' + table(['門市', '金額'], (d.by_store || []).map(function (r) { return [esc(r.store), fmt(r.amount)]; })) + '</div></div>';
   bindFilters(viewCost);
@@ -151,14 +158,14 @@ async function drawPrice() {
   var nx = Math.min(5, pts.length), seen = {};
   for (var k = 0; k < nx; k++) { var p = pts[nx === 1 ? 0 : Math.round(k * (pts.length - 1) / (nx - 1))]; if (seen[p.doc_date]) continue; seen[p.doc_date] = 1; g += '<text x="' + X(Date.parse(p.doc_date)).toFixed(1) + '" y="' + (H - 12) + '" text-anchor="middle">' + esc(p.doc_date.slice(5)) + '</text>'; }
   g += '<line x1="' + L + '" x2="' + L + '" y1="' + T + '" y2="' + (H - B) + '" stroke="var(--line)"/><line x1="' + L + '" x2="' + (W - R) + '" y1="' + (H - B) + '" y2="' + (H - B) + '" stroke="var(--ink)"/>';
-  if (d.avg_3m != null) g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(d.avg_3m).toFixed(1) + '" y2="' + Y(d.avg_3m).toFixed(1) + '" stroke="var(--sub)" stroke-width="1.5" stroke-dasharray="2 4"/>';
-  if (d.avg_month != null) g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(d.avg_month).toFixed(1) + '" y2="' + Y(d.avg_month).toFixed(1) + '" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="8 4"/>';
+  if (d.avg_3m != null) g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(d.avg_3m).toFixed(1) + '" y2="' + Y(d.avg_3m).toFixed(1) + '" stroke="var(--yellow)" stroke-width="1.5" stroke-dasharray="2 4"/>';
+  if (d.avg_month != null) g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(d.avg_month).toFixed(1) + '" y2="' + Y(d.avg_month).toFixed(1) + '" stroke="var(--yellow)" stroke-width="1.5" stroke-dasharray="8 4"/>';
   g += '<polyline fill="none" stroke="var(--ink)" stroke-width="1.6" points="' + pts.map(function (p) { return X(Date.parse(p.doc_date)).toFixed(1) + ',' + Y(p.unit_cost).toFixed(1); }).join(' ') + '"/>';
   g += pts.map(function (p) { return '<circle cx="' + X(Date.parse(p.doc_date)).toFixed(1) + '" cy="' + Y(p.unit_cost).toFixed(1) + '" r="4" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.6"><title>' + esc(p.doc_date + '　' + p.vendor + '　' + fmt(p.unit_cost) + ' 元／' + unit) + '</title></circle>'; }).join('');
   box.innerHTML =
     '<div class="legend"><span><svg viewBox="0 0 34 10"><line x1="0" x2="34" y1="5" y2="5" stroke="var(--ink)" stroke-width="1.6"/><circle cx="17" cy="5" r="3.5" fill="var(--surface)" stroke="var(--ink)"/></svg>每次進貨單價</span>' +
-    '<span><svg viewBox="0 0 34 10"><line x1="0" x2="34" y1="5" y2="5" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="8 4"/></svg>當月加權平均　<b>' + (d.avg_month == null ? '—' : fmt(d.avg_month)) + '</b></span>' +
-    '<span><svg viewBox="0 0 34 10"><line x1="0" x2="34" y1="5" y2="5" stroke="var(--sub)" stroke-width="1.5" stroke-dasharray="2 4"/></svg>3 個月加權平均　<b>' + (d.avg_3m == null ? '—' : fmt(d.avg_3m)) + '</b></span><span class="muted">單位：元／' + esc(unit) + '</span></div>' +
+    '<span><svg viewBox="0 0 34 10"><line x1="0" x2="34" y1="5" y2="5" stroke="var(--yellow)" stroke-width="1.5" stroke-dasharray="8 4"/></svg>當月加權平均　<b>' + (d.avg_month == null ? '—' : fmt(d.avg_month)) + '</b></span>' +
+    '<span><svg viewBox="0 0 34 10"><line x1="0" x2="34" y1="5" y2="5" stroke="var(--yellow)" stroke-width="1.5" stroke-dasharray="2 4"/></svg>3 個月加權平均　<b>' + (d.avg_3m == null ? '—' : fmt(d.avg_3m)) + '</b></span><span class="muted">單位：元／' + esc(unit) + '</span></div>' +
     '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc((d.item && d.item.name || d.item || '') + ' 單價走勢') + '">' + g + '</svg>' +
     '<div class="plain tblwrap" style="margin-top:1rem"><table><thead><tr><th>日期</th><th>廠商</th><th class="n">單價（元／' + esc(unit) + '）</th><th>貨單</th></tr></thead><tbody>' +
     pts.slice().reverse().map(function (p) { return '<tr><td>' + esc(p.doc_date) + '</td><td>' + esc(p.vendor) + '</td><td class="n">' + fmt(p.unit_cost) + '</td><td class="muted">' + esc(p.slip_id) + '</td></tr>'; }).join('') + '</tbody></table></div>';

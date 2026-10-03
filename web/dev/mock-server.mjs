@@ -194,6 +194,12 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (p === '/pnl-map') {
+    if (req.method === 'PUT') return ok(res, { entries: json().entries || [], requeued: 0 });
+    return ok(res, { categories: ['食材', '包材', '雜貨', '其他'], entries: [{ vendor_id: 1, category: '食材', acc_id: '5101' }],
+      unmapped: [{ store_name: '光復店', month: '2026-10', vendor: '示範蔬果行', category: '未分類', reason: '未對照', amount: 2400 }], unmapped_total: 2400,
+      stuck: [{ store_id: 1, store_name: '光復店', month: '2026-09', state: 'locked', reason: '月份已定稿' }], stores: stores.filter(s => inBrand(who, s.brand_id, q)) });
+  }
   /* ---- P1 ---- */
   if (p === '/slips' && req.method === 'POST') {
     if (role !== 'store') return fail(res, 403, 'FORBIDDEN', '只有門市能上傳');

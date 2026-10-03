@@ -43,9 +43,9 @@ var Common = (function () {
     if (s && s.role === 'admin') {
       picker = '<select id="brandPick" aria-label="工作品牌">' + ['X', 'M', 'C'].map(function (b) { return '<option value="' + b + '"' + (adminBrand() === b ? ' selected' : '') + '>' + BRAND_NAME[b] + '</option>'; }).join('') + '</select>';
     }
-    return '<header class="hdr"><div class="l"><span class="bar"></span><span class="ttl">' + esc(o.title) + '</span>' +
+    return '<div class="stripe"></div><header class="hdr"><div class="l"><div class="logos"></div><span class="ttl">' + esc(o.title) + '</span>' +
       (s ? '<span class="who">' + esc(o.who ? o.who(s) : (s.name || '')) + '</span>' : '') + '</div>' +
-      '<div class="r">' + nav + picker + '<div class="logos"></div>' + (s ? '<button id="logout" type="button">登出</button>' : '') + '</div></header>';
+      '<div class="r">' + nav + picker + (s ? '<button id="logout" type="button">登出</button>' : '') + '</div></header>';
   }
 
   /* o: {title, nav, roles:[...], who(s), loginTitle, loginHint, accLabel, upper, previewBrand(accountValue), onReady(session)} */

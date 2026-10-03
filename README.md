@@ -26,3 +26,14 @@
 ## 部署順序（P3 損益推送）
 **必須先部署損益系統（mala-pnl-auto，PR #66 的 `purchasePush` 端點）再上線 Mac mini（本 repo）。**
 原因：定稿月遇到新進貨時，本系統靠損益端 LOCKED 回應附帶的 `live`（各科目目前活著的進貨系統列合計）與 `manual`（有活著人工列的科目）判斷要不要亮「進貨金額變動」黃燈、以及待撤回工作能不能直接結案。舊版損益端不回這兩個欄位時，本系統視為 `live` 全 0、`manual` 空，會讓所有定稿月份誤亮黃燈或卡在 locked 終態。
+
+## 示範資料（全部虛構，可放心截圖）
+產生一份完全虛構的示範資料（3 品牌 5 間門市、虛構廠商／品項、近 3 個月已入帳貨單、本月待核對各種旗標、辨識失敗／退回／辨識中、價格變動提醒、待補對照、一個已定稿終態黃燈），用來看各畫面有資料時的樣子：
+
+```
+DEMO_PASS='自訂密碼' DATA_DIR=spike/demodata node server/dev/demo-seed.js   # 會先整個清空 DATA_DIR 再重建；沒給 DEMO_PASS 就隨機產生並只印在終端機
+DATA_DIR=spike/demodata PORT=8794 node server/index.js                      # 用示範資料起伺服器
+```
+- 帳號：門市 X01 X02 M01 M02 C01、會計 acc-x acc-m acc-c、管理者 admin，全部共用同一組 `DEMO_PASS`。
+- 需要 macOS（照片用內建 `qlmanage`＋`sips` 產生 JPEG）；不呼叫任何外部服務、不需要 Ollama；`DATA_DIR` 路徑必須含 `demo`（防誤刪）。
+- 入帳走正式 API，所以廠商記憶、價格變動提醒、成本、損益推送排程都是正式邏輯算出來的。

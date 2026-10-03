@@ -1,90 +1,98 @@
-/* 「紙」版（設計稿 A）：方角 2px、細線、標題 Noto Serif TC、左側 4px 品牌色直條。
-   品牌色變數由 js/theme.js 的 applyTheme() 設定；下面是鼎兆元中性色預設。 */
+/* Linen & Ledger（Stitch「AI Smart Invoice System」設計系統，2026-10-04 取代「紙」版）。
+   圓角 4px（卡片 8px）、無陰影；Plus Jakarta Sans＋Noto Sans TC；數字／單號／日期用 Space Mono。
+   品牌只換 --bg（微染底色）與 --brand（頂端 3px 細線），由 js/theme.js 的 applyTheme() 設定。 */
 :root{
-  --bg:#F3F0E8; --surface:#FBFAF6; --ink:#34312C; --sub:#6E6A62; --line:#DDD7CA; --faint:#E8E3D7;
-  --accent:#1F4E8C; --button:#34312C; --button-ink:#F3F0E8;
-  /* 旗標色：三品牌一致，不隨主題變 */
-  --red:#8C1D2B; --red-bg:#F7E9E6; --yellow:#7A5B1E; --yellow-bg:#F6EEDB;
-  --fs:16px; --radius:2px;
-  --serif:"Noto Serif TC","Songti TC","PMingLiU",serif;
-  --sans:"Noto Sans TC",-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;
+  --bg:#FBFBF9; --brand:#2C2A29;
+  --panel:#F5F4F0; --surface:#FFFFFF; --line:#E6E4DD; --faint:#ECEAE3;
+  --ink:#2C2A29; --sub:#595652; --mute:#8C8881;
+  --green:#5A7854; --green-t:#3F5A3A; --green-bg:#F1F5EF;
+  --red:#B85D43; --red-t:#9A4A34; --red-bg:#FAF1ED;
+  --yellow:#C48E48; --yellow-t:#7A5524; --yellow-bg:#FBF6EE;
+  --accent:#3F5A3A; --button:#2C2A29; --button-ink:#FBFBF9;
+  --fs:16px; --radius:4px; --card:8px;
+  --sans:"Plus Jakarta Sans","Noto Sans TC",-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;
+  --mono:"Space Mono",ui-monospace,Menlo,monospace;
 }
 *{box-sizing:border-box}
 html,body{margin:0}
-body{background:var(--bg);color:var(--ink);font:300 var(--fs)/1.6 var(--sans);-webkit-text-size-adjust:100%}
-h1,h2,h3{font-family:var(--serif);font-weight:500;margin:0}
-h1{font-size:1.25rem;letter-spacing:.14em}
-h2{font-size:1.1rem;letter-spacing:.08em;margin-bottom:.6rem}
-h3{font-size:1rem;letter-spacing:.06em;margin:1rem 0 .4rem}
+body{background:var(--bg);color:var(--ink);font:400 var(--fs)/1.6 var(--sans);-webkit-text-size-adjust:100%}
+h1,h2,h3{font-family:var(--sans);font-weight:600;margin:0}
+h1{font-size:1.2rem}
+h2{font-size:.95rem;margin-bottom:.6rem}
+h3{font-size:.9rem;margin:1rem 0 .4rem}
 button,input,select,textarea{font:inherit;color:inherit}
 input,select,textarea{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:0 .75rem;width:100%;min-height:44px}
 textarea{padding:.5rem .75rem}
-input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+input[type=date],input[type=month],input[type=number],input[type=time]{font-family:var(--mono);font-size:.9em}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--ink);outline-offset:1px}
 input[type=checkbox]{width:20px;height:20px;min-height:0;accent-color:var(--ink)}
-label.f{display:flex;flex-direction:column;gap:.3rem;font-size:.78rem;color:var(--sub);letter-spacing:.1em}
-label.f input,label.f select{font-size:.95rem;color:var(--ink);letter-spacing:0}
-button{min-height:44px;padding:0 1.1rem;border-radius:var(--radius);border:1px solid var(--line);background:transparent;cursor:pointer;letter-spacing:.06em}
-button:hover:not(:disabled){border-color:var(--ink)}
-button.primary{background:var(--button);color:var(--button-ink);border-color:var(--button);font-weight:500}
-button.good{background:var(--accent);color:var(--surface);border-color:var(--accent);font-weight:500}
-button.warn{border-color:var(--red);color:var(--red)}
+label.f{display:flex;flex-direction:column;gap:.35rem;font-size:.78rem;font-weight:500;color:var(--sub);letter-spacing:.04em}
+label.f input,label.f select{font-size:.95rem;color:var(--ink);letter-spacing:0;font-weight:400}
+button{min-height:44px;padding:0 1.1rem;border-radius:var(--radius);border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer;font-weight:500}
+button:hover:not(:disabled){border-color:var(--mute)}
+button.primary,button.good{background:var(--button);color:var(--button-ink);border-color:var(--button)}
+button.primary:hover:not(:disabled),button.good:hover:not(:disabled){border-color:var(--button);background:#44413F}
+button.warn{border-color:var(--red);color:var(--red-t);background:var(--surface)}
 button.sm{min-height:36px;padding:0 .7rem;font-size:.85rem}
 button:disabled{opacity:.4;cursor:not-allowed}
-a{color:var(--accent)}
+a{color:var(--ink);text-underline-offset:3px}
+.mono,.num,td.n,.big{font-family:var(--mono);font-variant-numeric:tabular-nums}
 
-/* 頂端列 */
-.hdr{display:flex;align-items:center;justify-content:space-between;gap:.8rem 1.5rem;flex-wrap:wrap;padding:.6rem 1.5rem;min-height:64px;border-bottom:1px solid var(--line);background:var(--bg);position:sticky;top:0;z-index:20}
-.hdr .l{display:flex;align-items:center;gap:.9rem;min-width:0}
-.hdr .bar{width:4px;height:28px;background:var(--accent);flex:none}
-.hdr .ttl{font-family:var(--serif);font-size:1.2rem;letter-spacing:.14em;white-space:nowrap}
+/* 頂端：3px 品牌色細線＋標題列 */
+#hdr{position:sticky;top:0;z-index:20;background:var(--bg)}
+.stripe{height:3px;background:var(--brand)}
+.hdr{display:flex;align-items:center;justify-content:space-between;gap:.6rem 1.5rem;flex-wrap:wrap;padding:.6rem 2rem;min-height:60px;border-bottom:1px solid var(--line)}
+.hdr .l{display:flex;align-items:center;gap:.8rem;min-width:0}
+.hdr .ttl{font-size:1.05rem;font-weight:600;white-space:nowrap}
 .hdr .who{font-size:.82rem;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.hdr .r{display:flex;align-items:center;gap:1.2rem;flex-wrap:wrap}
-.logos{display:flex;align-items:center;gap:.6rem}
-.logos img{height:34px;width:auto;display:block}
-.logos .txt{font-family:var(--serif);letter-spacing:.2em;font-size:1rem}
-.nav{display:flex;gap:1.5rem;font-size:.9rem;letter-spacing:.08em}
-.nav a{color:var(--sub);text-decoration:none;padding:.5rem 0;border-bottom:1px solid transparent;min-height:44px;display:flex;align-items:center}
-.nav a.on{color:var(--ink);border-bottom-color:var(--ink)}
+.hdr .r{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap}
+.logos{display:flex;align-items:center;gap:.4rem}
+.logos img{height:34px;width:auto;display:block;border:1px solid var(--line);border-radius:var(--radius);background:#fff;padding:2px}
+.logos .txt{font-size:.85rem;font-weight:600;border:1px solid var(--line);border-radius:var(--radius);background:#fff;padding:5px 8px}
+.nav{display:flex;gap:4px;font-size:.9rem}
+.nav a{color:var(--sub);text-decoration:none;padding:0 .9rem;border:1px solid transparent;border-radius:var(--radius);min-height:44px;display:flex;align-items:center}
+.nav a:hover{color:var(--ink)}
+.nav a.on{color:var(--ink);background:var(--panel);border-color:var(--line);font-weight:500}
 .hdr select{width:auto;min-height:36px;font-size:.85rem}
 .hdr button{min-height:36px;font-size:.85rem}
 
-.page{max-width:1100px;margin:0 auto;padding:1.2rem 1.5rem 4rem}
-.card{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:var(--radius);padding:1rem 1.1rem;margin:.9rem 0}
-.plain{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:1rem 1.1rem;margin:.9rem 0}
+.page{max-width:1100px;margin:0 auto;padding:1.4rem 2rem 4rem}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--card);padding:1.1rem 1.25rem;margin:.9rem 0}
+.plain{background:var(--surface);border:1px solid var(--line);border-radius:var(--card);padding:1.1rem 1.25rem;margin:.9rem 0}
 .muted{color:var(--sub);font-size:.88rem}
 .row{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}
 .grow{flex:1;min-width:0}
 .hidden{display:none!important}
 .grid{display:grid;gap:.9rem;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
 
-.badge{display:inline-block;padding:0 .55rem;border:1px solid var(--line);border-radius:var(--radius);font-size:.78rem;letter-spacing:.05em;color:var(--sub)}
-.b-review{border-color:var(--yellow);color:var(--yellow)}
-.b-confirmed{border-color:var(--accent);color:var(--accent)}
-.b-failed,.b-returned{border-color:var(--red);color:var(--red);font-weight:500}
-.msg{padding:.55rem .8rem;border-radius:var(--radius);margin:.5rem 0;border:1px solid var(--line);background:var(--faint);font-size:.92rem}
-.msg.err{background:var(--red-bg);color:var(--red);border-color:var(--red)}
-.msg.ok{border-color:var(--accent)}
-.msg.info{background:var(--faint)}
-.r{color:var(--red)} .y{color:var(--yellow)}
+/* 狀態：抹茶綠＝已入帳／降價、橡木琥珀＝待處理、陶土紅＝失敗／退回／漲價（文字另有 ▲▼／字樣，不只靠顏色） */
+.badge{display:inline-block;padding:2px 8px;border:1px solid var(--line);border-radius:var(--radius);font-size:.75rem;font-weight:500;color:var(--sub);white-space:nowrap}
+.b-review,.b-recognizing,.b-queued,.b-uploaded{border-color:var(--yellow);color:var(--yellow-t)}
+.b-confirmed{border-color:var(--green);color:var(--green-t)}
+.b-failed,.b-returned{border-color:var(--red);color:var(--red-t)}
+.msg{padding:.55rem .8rem;border-radius:var(--radius);margin:.5rem 0;border:1px solid var(--line);background:var(--panel);font-size:.9rem}
+.msg.err{background:var(--red-bg);color:var(--red-t);border-color:var(--red)}
+.msg.ok{background:var(--green-bg);color:var(--green-t);border-color:var(--green)}
+.msg.info{background:var(--panel)}
+.r{color:var(--red-t)} .y{color:var(--yellow-t)}
 
 /* 表格 */
 table{width:100%;border-collapse:collapse}
-th{text-align:left;font-weight:400;font-size:.78rem;color:var(--sub);letter-spacing:.1em;padding:.35rem .4rem;border-bottom:1px solid var(--ink);white-space:nowrap}
-td{padding:.45rem .4rem;vertical-align:top;border-bottom:1px solid var(--faint);font-variant-numeric:tabular-nums}
+th{text-align:left;font-weight:500;font-size:.75rem;color:var(--sub);padding:.55rem .5rem;background:var(--panel);border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:.55rem .5rem;vertical-align:top;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+tbody tr:last-child td{border-bottom:0}
 th.n,td.n{text-align:right}
 tr.red td{background:var(--red-bg)}
 tr.yellow td{background:var(--yellow-bg)}
 .tblwrap{overflow-x:auto}
 
 /* 分頁籤 */
-.tabs{display:flex;gap:1.6rem;border-bottom:1px solid var(--line);margin:.2rem 0 1rem;flex-wrap:wrap}
-.tabs button{border:0;border-bottom:1px solid transparent;border-radius:0;min-height:44px;padding:0 .1rem;color:var(--sub);letter-spacing:.1em}
-.tabs button.on{color:var(--ink);border-bottom-color:var(--ink)}
-.tabs button:hover{border-color:transparent;border-bottom-color:var(--sub)}
-.tabs button.on:hover{border-bottom-color:var(--ink)}
+.tabs{display:flex;gap:4px;margin:.2rem 0 1rem;flex-wrap:wrap}
+.tabs button{border:1px solid transparent;background:transparent;border-radius:var(--radius);min-height:44px;padding:0 .95rem;color:var(--sub)}
+.tabs button.on{color:var(--ink);background:var(--panel);border-color:var(--line)}
+.tabs button:hover:not(.on){border-color:transparent;color:var(--ink)}
 
 @media (max-width:700px){
   .hdr{padding:.5rem 1rem}
   .page{padding:1rem 1rem 4rem}
-  .nav{gap:1.1rem}
 }

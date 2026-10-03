@@ -1,12 +1,14 @@
 /* 品牌主題（plan.md「P2 共用契約」品牌主題表）。applyTheme(brand_id) 設 :root CSS 變數並把 logo 放進 .logos。 */
 'use strict';
+/* 品牌主題：Linen & Ledger（Stitch「AI Smart Invoice System」，2026-10-04 取代「紙」版）。
+   版面共用同一套中性色；各品牌只換 微染底色 bg、頂端 3px 品牌色細線 brand、logo。 */
 var THEMES = {
-  M: { name: '墨竹亭', bg: '#EDF5F2', surface: '#F8FBFA', ink: '#202B66', sub: '#4F5A7A', line: '#C9DFD8', faint: '#DEECE7', accent: '#2C7A68', button: '#202B66', buttonInk: '#F8FBFA', logos: ['img/logo-mzt.png'] },
-  C: { name: '央廚', bg: '#EDF1F6', surface: '#F8FAFC', ink: '#1F2A3A', sub: '#56627A', line: '#CFD9E5', faint: '#E2E8EF', accent: '#1F4E8C', button: '#1F4E8C', buttonInk: '#F8FAFC', logos: ['img/logo-mzt.png', 'img/logo-mala.jpg'] },
-  X: { name: '小辛辣', bg: '#F7EEE9', surface: '#FCF8F5', ink: '#3A2E2A', sub: '#6E5F58', line: '#E6D3C9', faint: '#F0E2DA', accent: '#B9361F', button: '#B9361F', buttonInk: '#FCF8F5', logos: ['img/logo-mala.jpg'] },
-  _: { name: '鼎兆元', bg: '#F3F0E8', surface: '#FBFAF6', ink: '#34312C', sub: '#6E6A62', line: '#DDD7CA', faint: '#E8E3D7', accent: '#1F4E8C', button: '#34312C', buttonInk: '#F3F0E8', logos: [] }
+  M: { name: '墨竹亭', bg: '#F6FAF8', brand: '#202B66', logos: ['img/logo-mzt.png'] },
+  C: { name: '央廚', bg: '#F6F8FB', brand: '#1F4E8C', logos: ['img/logo-mzt.png', 'img/logo-mala.jpg'] },
+  X: { name: '小辛辣', bg: '#FBF7F4', brand: '#B9361F', logos: ['img/logo-mala.jpg'] },
+  _: { name: '鼎兆元', bg: '#FBFBF9', brand: '#2C2A29', logos: [] }
 };
-var VAR_MAP = { bg: '--bg', surface: '--surface', ink: '--ink', sub: '--sub', line: '--line', faint: '--faint', accent: '--accent', button: '--button', buttonInk: '--button-ink' };
+var VAR_MAP = { bg: '--bg', brand: '--brand' };
 
 function applyTheme(brandId) {
   var t = THEMES[brandId] || THEMES._;

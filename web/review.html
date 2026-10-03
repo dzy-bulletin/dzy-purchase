@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#F3F0E8">
+<meta name="theme-color" content="#FBFBF9">
 <title>貨單核對</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500&family=Noto+Serif+TC:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&family=Space+Mono:wght@400;700&family=Noto+Sans+TC:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <style>
   body{height:100vh;display:flex;flex-direction:column;overflow:hidden}
@@ -17,12 +17,14 @@
   .side{width:220px;border-right:1px solid var(--line);overflow:auto;flex:none;display:flex;flex-direction:column}
   .side .sel-wrap{padding:.8rem 1rem;border-bottom:1px solid var(--line)}
   .side .item{padding:.9rem 1.1rem;border-bottom:1px solid var(--faint);cursor:pointer;display:flex;flex-direction:column;gap:.1rem}
-  .side .item:hover{background:var(--faint)}
-  .side .item.sel{background:var(--surface);border-left:4px solid var(--accent);padding-left:calc(1.1rem - 4px)}
+  .side .item:hover{background:var(--panel)}
+  .side .item>div:nth-child(n+3){font-family:var(--mono)}
+  .side .item{border-left:3px solid transparent}
+  .side .item.sel{background:var(--panel);border-left-color:var(--red)}
   .dot{width:7px;height:7px;border-radius:50%;background:var(--red);display:inline-block;flex:none}
   .work{flex:1;display:flex;min-width:0;min-height:0}
   .photo{width:26%;min-width:240px;display:flex;flex-direction:column;border-right:1px solid var(--line);padding:1rem;gap:.6rem}
-  .viewer{flex:1;overflow:hidden;position:relative;background:var(--surface);border:1px solid var(--line);cursor:grab;touch-action:none}
+  .viewer{flex:1;overflow:hidden;position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--card);cursor:grab;touch-action:none}
   .viewer.drag{cursor:grabbing}
   .viewer img{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;user-select:none;-webkit-user-drag:none}
   .vtools{display:flex;gap:.4rem;flex-wrap:wrap}
@@ -32,10 +34,10 @@
   .head .wide{grid-column:1/-1}
   .why{font-size:.8rem;margin-top:.15rem}
   .why .r{font-weight:500}
-  .sum{margin:1rem 0;padding:.7rem .9rem;border:1px solid var(--line);background:var(--surface);border-left:4px solid var(--accent)}
-  .sum.bad{border-color:var(--red);background:var(--red-bg);border-left-color:var(--red)}
+  .sum{margin:1rem 0;padding:.7rem .9rem;border:1px solid var(--line);background:var(--panel);border-radius:var(--card)}
+  .sum.bad{border-color:var(--red);background:var(--red-bg)}
   .actions{position:sticky;bottom:0;background:var(--bg);padding:.7rem 0;display:flex;gap:.6rem;flex-wrap:wrap;border-top:1px solid var(--line);align-items:center}
-  .hand{background:var(--yellow-bg);color:var(--yellow);padding:.5rem .7rem;margin:.5rem 0;border:1px solid var(--yellow)}
+  .hand{background:var(--yellow-bg);color:var(--yellow-t);padding:.5rem .7rem;margin:.5rem 0;border:1px solid var(--yellow);border-radius:var(--radius)}
   #lines td input{min-height:40px;padding:0 .45rem}
   #lines td.num input{text-align:right;min-width:60px;width:100%}
   #lines td.del{width:36px;padding-left:0;padding-right:.2rem}
@@ -48,13 +50,13 @@
   .pk{position:relative;min-width:130px}
   .pk .sug{display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.25rem}
   .pk .sug button{min-height:32px;padding:0 .6rem;font-size:.8rem;border-style:dashed}
-  .pk .dd{position:fixed;z-index:30;background:var(--surface);border:1px solid var(--ink);max-height:240px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.12)}
+  .pk .dd{position:fixed;z-index:30;background:var(--surface);border:1px solid var(--mute);max-height:240px;overflow:auto;border-radius:var(--radius)}
   .pk .dd div{padding:.55rem .7rem;cursor:pointer;min-height:44px;display:flex;align-items:center;gap:.5rem;font-size:.9rem}
   .pk .dd div:hover,.pk .dd div.hl{background:var(--faint)}
   .pk .dd .add{border-top:1px solid var(--line);color:var(--accent);font-weight:500}
   .pk .dd small{color:var(--sub)}
-  .ov{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:50;padding:1rem}
-  .ov .box{background:var(--surface);border:1px solid var(--ink);border-left:4px solid var(--accent);padding:1.2rem;width:100%;max-width:400px}
+  .ov{position:fixed;inset:0;background:rgba(44,42,41,.35);display:flex;align-items:center;justify-content:center;z-index:50;padding:1rem}
+  .ov .box{background:var(--surface);border:1px solid var(--line);border-radius:var(--card);padding:1.2rem;width:100%;max-width:400px}
   @media (max-width:1100px){.side{width:180px}.photo{width:28%}}
   @media (max-width:820px){body{overflow:auto;height:auto}.main,.work{flex-direction:column}.side{width:auto;border-right:0;border-bottom:1px solid var(--line);max-height:220px}.photo{width:auto;min-height:300px;border-right:0}.head{grid-template-columns:1fr 1fr}}
 </style>
