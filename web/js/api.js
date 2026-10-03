@@ -19,6 +19,7 @@ var API = (function () {
     if (s && s.token) headers['Authorization'] = 'Bearer ' + s.token;
     var body = opts.body;
     if (body && !(body instanceof FormData)) { headers['Content-Type'] = 'application/json'; body = JSON.stringify(body); }
+    if (CFG.UNCONFIGURED) throw ApiError('NETWORK', '尚未設定伺服器網址（部署時要把 config.js 的 __FUNNEL__ 換成實際網址）', 0);
     var ctl = new AbortController();
     var timer = setTimeout(function () { ctl.abort(); }, opts.timeout || CFG.TIMEOUT);
     var res;
@@ -46,8 +47,9 @@ var API = (function () {
     return d;
   }
   function logout() { clearSession(); }
+  function update(patch) { var s = session(); if (s) setSession(Object.assign({}, s, patch)); }
 
-  return { call: call, login: login, logout: logout, session: session, onUnauthorized: null };
+  return { call: call, login: login, logout: logout, update: update, session: session, onUnauthorized: null };
 })();
 
 /* 伺服器存 UTC（ISO），畫面一律顯示台灣時間 YYYY-MM-DD HH:mm */

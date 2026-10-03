@@ -133,11 +133,16 @@ test('管理：門市／帳號新增修改；停用門市無法登入；X 品牌
     const list = await t.call('GET', '/admin/stores', { token: k.admin });
     assert.deepStrictEqual(list.data.map((s) => s.code), ['C01', 'M01', 'X01']);
     assert.deepStrictEqual(Object.keys(list.data[0]).sort(), ['active', 'brand_id', 'code', 'id', 'name', 'pnl_unit_code']);
-    // 新增、代號字首要與品牌一致、重複代號 CONFLICT、密碼太短
+    // 新增、代號格式（大寫英數 2–10，不綁品牌字首）、重複代號 CONFLICT、密碼太短
     let r = await t.call('POST', '/admin/stores', { token: k.admin, body: { code: 'C02', name: '央廚二（測試）', brand_id: 'C', password: 'pw-c02x' } });
     assert.strictEqual(r.ok, true); const c02 = r.data.id;
     assert.strictEqual((await t.call('POST', '/admin/stores', { token: k.admin, body: { code: 'C02', name: 'dup', brand_id: 'C', password: 'pw-c02x' } })).error, 'CONFLICT');
-    assert.strictEqual((await t.call('POST', '/admin/stores', { token: k.admin, body: { code: 'M05', name: 'bad', brand_id: 'C', password: 'pw-c02x' } })).error, 'BAD_INPUT');
+    assert.strictEqual((await t.call('POST', '/admin/stores', { token: k.admin, body: { code: 'BAD-CODE', name: 'bad', brand_id: 'C', password: 'pw-c02x' } })).error, 'BAD_INPUT');
+    r = await t.call('POST', '/admin/stores', { token: k.admin, body: { code: 'MDGF', name: '實際代號（測試）', brand_id: 'X', password: 'pw-mdgf1' } });   // 不綁品牌字首
+    assert.strictEqual(r.ok, true); assert.ok(await t.login('mdgf', 'pw-mdgf1'), '登入不分大小寫');
+    assert.strictEqual((await t.call('POST', '/admin/stores', { token: k.admin, body: { code: 'A', name: 'short', brand_id: 'C', password: 'pw-c02x' } })).error, 'BAD_INPUT');
+    assert.strictEqual((await t.call('POST', '/admin/stores', { token: k.admin, body: { code: 'ABCDEFGHIJK', name: 'long', brand_id: 'C', password: 'pw-c02x' } })).error, 'BAD_INPUT');
+    r = { data: { id: c02 } };
     assert.strictEqual((await t.call('POST', '/admin/stores', { token: k.admin, body: { code: 'C03', name: 'bad', brand_id: 'C', password: '123' } })).error, 'BAD_INPUT');
     assert.ok(await t.login('C02', 'pw-c02x'));
     // 停用 → 無法登入，既有 token 也立刻失效；再啟用、改密碼
@@ -153,7 +158,7 @@ test('管理：門市／帳號新增修改；停用門市無法登入；X 品牌
     assert.strictEqual(r.ok, true); assert.strictEqual(r.data.pass_hash, undefined);
     assert.ok(await t.login('acc-c2', 'pw-accc2'));
     assert.strictEqual((await t.call('POST', '/admin/users', { token: k.admin, body: { username: 'acc-c2', name: 'x', role: 'accountant', brand_id: 'C', password: 'pw-accc2' } })).error, 'CONFLICT');
-    assert.strictEqual((await t.call('POST', '/admin/users', { token: k.admin, body: { username: 'c05', name: 'x', role: 'accountant', brand_id: 'C', password: 'pw-accc2' } })).error, 'BAD_INPUT');   // 長得像門市代號
+    assert.strictEqual((await t.call('POST', '/admin/users', { token: k.admin, body: { username: 'x01', name: 'x', role: 'accountant', brand_id: 'C', password: 'pw-accc2' } })).error, 'BAD_INPUT');   // 長得像門市代號
     assert.strictEqual((await t.call('POST', '/admin/users', { token: k.admin, body: { username: 'acc-nobrand', name: 'x', role: 'accountant', password: 'pw-accc2' } })).error, 'BAD_INPUT');
     r = await t.call('PUT', `/admin/users/${r.data.id}`, { token: k.admin, body: { active: false } });
     assert.strictEqual(await t.login('acc-c2', 'pw-accc2'), null);

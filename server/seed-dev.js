@@ -42,7 +42,7 @@ function seed(db, env) {
     const user = (username, role, brand, name, key) => {
       const ex = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
       const p = pass(key);
-      if (!ex) { db.prepare('INSERT INTO users (username, role, brand_id, name, pass_hash) VALUES (?,?,?,?,?)').run(username, role, brand, name, hashPassword(p.pw)); if (!p.given) printed.push(`${username}\t${p.pw}`); }
+      if (!ex) { const uid = Number(db.prepare('INSERT INTO users (username, role, brand_id, name, pass_hash) VALUES (?,?,?,?,?)').run(username, role, brand, name, hashPassword(p.pw)).lastInsertRowid); if (role === 'accountant') db.prepare('INSERT INTO user_brands (user_id, brand_id) VALUES (?,?)').run(uid, brand); if (!p.given) printed.push(`${username}\t${p.pw}`); }
       else if (p.given) db.prepare('UPDATE users SET pass_hash = ?, fail_count = 0, locked_until = NULL WHERE username = ?').run(hashPassword(p.pw), username);
     };
     user('acc-c', 'accountant', 'C', '央廚會計（測試）', 'SEED_PASS_ACC_C');

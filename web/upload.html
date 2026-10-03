@@ -271,8 +271,7 @@ $('refresh').onclick = loadMine;
 
 Common.gate({
   title: '貨單上傳', roles: ['store'], roleError: '請用門市代號登入', upper: true,
-  loginHint: '請用門市代號登入（例如 X01）', accLabel: '門市代號',
-    previewBrand: function (v) { var c = (v || '').charAt(0).toUpperCase(); return THEMES[c] && c !== '_' ? c : null; },
+  loginHint: '請用門市代號登入（例如 MDGF）', accLabel: '門市代號',
   onReady: function (s) { $('who').textContent = s.name || s.store_id || ''; $('ver').textContent = CFG.VERSION; loadVendors(); loadMine(); updatePending(); flush(); }
 });
 </script>

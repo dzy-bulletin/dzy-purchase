@@ -7,7 +7,7 @@ const { CATEGORIES } = require('./calc');
 const { normText } = require('./slips-common');
 const P = require('./pnl-push');
 
-const STORE_CODE = /^[XMC]\d{2}$/;
+const STORE_CODE = /^[A-Z0-9]{2,10}$/;            // P4：門市代號＝實際代號（CF、MDGF、MZTGF…），不再綁品牌字首
 const MIN_PW = 6;
 
 module.exports = function register(ctx) {
@@ -64,10 +64,10 @@ module.exports = function register(ctx) {
   route('POST', /^\/admin\/stores$/, ['admin'], async ({ req, p }) => {
     const b = await body(req);
     const code = String(b.code || '').trim().toUpperCase();
-    if (!STORE_CODE.test(code)) throw new ApiError('BAD_INPUT', '門市代號格式：品牌字首（X／M／C）加 2 位數字，例如 X01');
+    if (!STORE_CODE.test(code)) throw new ApiError('BAD_INPUT', '門市代號格式：大寫英文或數字 2–10 字，例如 MDGF');
     if (!brandExists(b.brand_id)) throw new ApiError('BAD_INPUT', '找不到這個品牌');
-    if (code[0] !== b.brand_id) throw new ApiError('BAD_INPUT', `門市代號字首必須是品牌代號 ${b.brand_id}`);
     if (db.prepare('SELECT 1 FROM stores WHERE code = ?').get(code)) throw new ApiError('CONFLICT', '這個門市代號已存在');
+    if (db.prepare('SELECT 1 FROM users WHERE UPPER(username) = ?').get(code)) throw new ApiError('CONFLICT', '這個代號與某個會計／管理者帳號相同，請改用別的代號');
     const pw = password(b.password);
     return db.tx(() => {
       const id = db.prepare('INSERT INTO stores (brand_id, code, name, pass_hash, active, pnl_unit_code) VALUES (?,?,?,?,?,?)')
@@ -90,7 +90,7 @@ module.exports = function register(ctx) {
       if (code !== s.code || brand !== s.brand_id) {
         if (!STORE_CODE.test(code)) throw new ApiError('BAD_INPUT', '門市代號格式不正確');
         if (!brandExists(brand)) throw new ApiError('BAD_INPUT', '找不到這個品牌');
-        if (code[0] !== brand) throw new ApiError('BAD_INPUT', `門市代號字首必須是品牌代號 ${brand}`);
+        if (db.prepare('SELECT 1 FROM users WHERE UPPER(username) = ?').get(code)) throw new ApiError('CONFLICT', '這個代號與某個會計／管理者帳號相同，請改用別的代號');
         if (db.prepare('SELECT 1 FROM stores WHERE code = ? AND id <> ?').get(code, s.id)) throw new ApiError('CONFLICT', '這個門市代號已存在');
         if (db.prepare('SELECT 1 FROM slips WHERE store_id = ? LIMIT 1').get(s.id)) throw new ApiError('CONFLICT', '這間門市已有貨單，不能改代號或品牌');
         set.code = code; set.brand_id = brand;
@@ -114,27 +114,46 @@ module.exports = function register(ctx) {
   });
 
   // ---------- 帳號（會計／管理者）----------
-  const userOut = (r) => ({ id: r.id, username: r.username, name: r.name, role: r.role, brand_id: r.brand_id, active: r.active ? 1 : 0 });
+  const brandIdsOf = (id) => db.prepare('SELECT brand_id FROM user_brands WHERE user_id = ? ORDER BY brand_id').all(id).map((r) => r.brand_id);
+  const userOut = (r) => ({ id: r.id, username: r.username, name: r.name, role: r.role, brand_id: r.brand_id, brand_ids: brandIdsOf(r.id), active: r.active ? 1 : 0 });
+  const isStoreCode = (u) => !!db.prepare('SELECT 1 FROM stores WHERE code = ?').get(String(u).toUpperCase());
   const USERNAME = /^[A-Za-z0-9._-]{3,40}$/;
   function userRole(b, cur) {
     const role = b.role !== undefined ? b.role : cur.role;
     if (!['accountant', 'admin'].includes(role)) throw new ApiError('BAD_INPUT', 'role 只能是 accountant 或 admin');
-    let brand = b.brand_id !== undefined ? b.brand_id : cur.brand_id;
-    if (role === 'admin') brand = null;
-    else if (!brand || !brandExists(brand)) throw new ApiError('BAD_INPUT', '會計帳號必須指定有效的品牌');
-    return { role, brand };
+    // 會計可管多個品牌：brand_ids（陣列）；只給舊欄位 brand_id 則等於只管那一個。brand_id＝預設品牌（必須在 brand_ids 內）
+    let ids;
+    if (b.brand_ids !== undefined) {
+      if (!Array.isArray(b.brand_ids)) throw new ApiError('BAD_INPUT', 'brand_ids 必須是陣列');
+      ids = [...new Set(b.brand_ids.map(String))];
+    } else if (b.brand_id !== undefined) ids = b.brand_id ? [b.brand_id] : [];
+    else ids = cur.id ? brandIdsOf(cur.id) : [];
+    let brand = b.brand_id !== undefined && b.brand_id ? b.brand_id : cur.brand_id;
+    if (role === 'admin') { brand = null; ids = []; }
+    else {
+      if (!ids.length || ids.some((x) => !brandExists(x))) throw new ApiError('BAD_INPUT', '會計帳號必須指定有效的品牌');
+      if (!brand || !ids.includes(brand)) brand = ids[0];
+    }
+    return { role, brand, ids, touched: b.brand_ids !== undefined || b.brand_id !== undefined || b.role !== undefined };
   }
+  const setUserBrands = (userId, ids) => {
+    db.prepare('DELETE FROM user_brands WHERE user_id = ?').run(userId);
+    const ins = db.prepare('INSERT INTO user_brands (user_id, brand_id) VALUES (?,?)');
+    ids.forEach((x) => ins.run(userId, x));
+  };
   route('GET', /^\/admin\/users$/, ['admin'], async () => db.prepare('SELECT * FROM users ORDER BY username').all().map(userOut));
   route('POST', /^\/admin\/users$/, ['admin'], async ({ req, p }) => {
     const b = await body(req);
     const username = String(b.username || '').trim();
-    if (!USERNAME.test(username) || STORE_CODE.test(username.toUpperCase())) throw new ApiError('BAD_INPUT', '帳號需 3–40 字元（英數與 . _ -），且不可長得像門市代號');
+    if (!USERNAME.test(username)) throw new ApiError('BAD_INPUT', '帳號需 3–40 字元（英數與 . _ -）');
+    if (isStoreCode(username)) throw new ApiError('BAD_INPUT', '帳號不可與門市代號相同');
     if (db.prepare('SELECT 1 FROM users WHERE username = ?').get(username)) throw new ApiError('CONFLICT', '這個帳號已存在');
-    const { role, brand } = userRole(b, {});
+    const { role, brand, ids } = userRole(b, {});
     const pw = password(b.password);
     return db.tx(() => {
       const id = db.prepare('INSERT INTO users (username, role, brand_id, name, pass_hash, active) VALUES (?,?,?,?,?,?)')
         .run(username, role, brand, text(b.name, '姓名'), hashPassword(pw), bool(b.active, 1)).lastInsertRowid;
+      setUserBrands(Number(id), ids);
       const row = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(id));
       audit(db, who(p), 'admin_user_create', null, null, userOut(row));
       return userOut(row);
@@ -148,16 +167,18 @@ module.exports = function register(ctx) {
       const set = {};
       if (b.username !== undefined) {
         const un = String(b.username).trim();
-        if (!USERNAME.test(un) || STORE_CODE.test(un.toUpperCase())) throw new ApiError('BAD_INPUT', '帳號格式不正確');
+        if (!USERNAME.test(un) || isStoreCode(un)) throw new ApiError('BAD_INPUT', '帳號格式不正確（或與門市代號相同）');
         if (db.prepare('SELECT 1 FROM users WHERE username = ? AND id <> ?').get(un, u.id)) throw new ApiError('CONFLICT', '這個帳號已存在');
         set.username = un;
       }
       if (b.name !== undefined) set.name = text(b.name, '姓名');
       if (b.active !== undefined) set.active = bool(b.active);
-      if (b.role !== undefined || b.brand_id !== undefined) { const r = userRole(b, u); set.role = r.role; set.brand_id = r.brand; }
+      let newIds = null;
+      if (b.role !== undefined || b.brand_id !== undefined || b.brand_ids !== undefined) { const r = userRole(b, u); set.role = r.role; set.brand_id = r.brand; newIds = r.ids; }
       if (p.kind === 'user' && p.id === u.id && (set.active === 0 || (set.role && set.role !== 'admin'))) throw new ApiError('BAD_INPUT', '不能停用或降級自己的帳號');
       if (b.password !== undefined) { set.pass_hash = hashPassword(password(b.password)); set.fail_count = 0; set.locked_until = null; }
       const cols = Object.keys(set);
+      if (newIds) setUserBrands(u.id, newIds);
       if (cols.length) db.prepare(`UPDATE users SET ${cols.map((c) => c + ' = ?').join(', ')} WHERE id = ?`).run(...cols.map((c) => set[c]), u.id);
       if (b.password !== undefined || set.active === 0) dropSessions('user', u.id);
       const row = db.prepare('SELECT * FROM users WHERE id = ?').get(u.id);

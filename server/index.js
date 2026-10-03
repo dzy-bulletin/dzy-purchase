@@ -35,7 +35,7 @@ function makeApp(cfg, opts) {
   function originAllowed(o) {
     if (!o) return false;
     if (o === 'https://dzy-bulletin.github.io') return true;
-    if (/^http:\/\/localhost(:\d+)?$/.test(o)) return true;
+    if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o)) return true;
     return cfg.EXTRA_ORIGINS.includes(o);
   }
   function corsHeaders(req) {
@@ -117,7 +117,13 @@ function makeApp(cfg, opts) {
     const b = parseJson(raw);
     const r = A.login(db, b.account, b.password, now());
     const p = r.principal;
-    return { token: r.token, expires_at: r.expires_at, role: p.role, name: p.name, brand: p.brand_id, brand_id: p.brand_id, store_id: p.store_id, store: p.kind === 'store' ? { id: p.id, code: p.code, name: p.name } : null };
+    return { token: r.token, expires_at: r.expires_at, role: p.role, name: p.name, brand: p.brand_id, brand_id: p.brand_id, brands: p.brands, store_id: p.store_id, store: p.kind === 'store' ? { id: p.id, code: p.code, name: p.name } : null };
+  });
+  // 會計切換目前品牌（P4）：之後所有依品牌過濾的 API 都用這個品牌
+  route('POST', /^\/session\/brand$/, ['accountant'], async ({ req, p }) => {
+    const b = parseJson(await readBody(req, 16 * 1024));
+    A.switchBrand(db, p, b.brand_id);
+    return { brand_id: p.brand_id, brands: p.brands };
   });
   route('POST', /^\/logout$/, ['store', 'accountant', 'admin'], async ({ p }) => { A.logout(db, p); return {}; });
 

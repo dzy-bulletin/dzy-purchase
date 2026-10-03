@@ -22,17 +22,29 @@ const DUMMY = hashPassword('dummy-not-a-real-password');   // 帳號不存在時
 
 function findAccount(db, account) {
   const acc = String(account || '').trim();
-  if (/^[XMC]\d{2}$/i.test(acc)) {
+  if (/^[A-Za-z0-9]{2,10}$/.test(acc)) {          // 門市代號：大寫英數 2–10 字（登入時不分大小寫）；找不到再當會計帳號
     const r = db.prepare('SELECT * FROM stores WHERE code = ?').get(acc.toUpperCase());
-    return r ? { kind: 'store', row: r } : null;
+    if (r) return { kind: 'store', row: r };
   }
   const r = db.prepare('SELECT * FROM users WHERE username = ?').get(acc);
   return r ? { kind: 'user', row: r } : null;
 }
 
-function principalOf(kind, row) {
-  if (kind === 'store') return { kind, role: 'store', id: row.id, store_id: row.id, brand_id: row.brand_id, name: row.name, code: row.code };
-  return { kind, role: row.role, id: row.id, store_id: null, brand_id: row.brand_id, name: row.name, username: row.username };
+// 會計有權的品牌（user_brands）；目前品牌＝session 記的那個（必須仍在清單內），否則退回預設品牌、再不然清單第一個
+function brandsOf(db, userId) {
+  return db.prepare('SELECT b.id, b.name FROM user_brands ub JOIN brands b ON b.id = ub.brand_id WHERE ub.user_id = ? ORDER BY b.id').all(userId);
+}
+function currentBrand(brands, sessionBrand, defaultBrand) {
+  const ids = brands.map((b) => b.id);
+  if (sessionBrand && ids.includes(sessionBrand)) return sessionBrand;
+  if (defaultBrand && ids.includes(defaultBrand)) return defaultBrand;
+  return ids[0] || null;
+}
+function principalOf(kind, row, db, sessionBrand) {
+  if (kind === 'store') return { kind, role: 'store', id: row.id, store_id: row.id, brand_id: row.brand_id, brands: [], name: row.name, code: row.code };
+  const brands = row.role === 'accountant' ? brandsOf(db, row.id) : [];
+  const brand = row.role === 'accountant' ? currentBrand(brands, sessionBrand, row.brand_id) : row.brand_id;
+  return { kind, role: row.role, id: row.id, store_id: null, brand_id: brand, brands, name: row.name, username: row.username };
 }
 const whoOf = (p) => `${p.kind}:${p.id}`;
 
@@ -52,11 +64,11 @@ function login(db, account, password, now) {
     throw new ApiError('AUTH', '帳號或密碼錯誤');
   }
   db.prepare(`UPDATE ${table} SET fail_count = 0, locked_until = NULL WHERE id = ?`).run(row.id);
-  const p = principalOf(kind, row);
+  const p = principalOf(kind, row, db, null);
   const token = crypto.randomBytes(32).toString('hex');
   const expires = new Date(now.getTime() + (kind === 'store' ? STORE_DAYS : USER_DAYS) * 86400e3).toISOString();
   db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now.toISOString());
-  db.prepare('INSERT INTO sessions (token_hash, who, expires_at, created_at) VALUES (?,?,?,?)').run(sha256(token), whoOf(p), expires, now.toISOString());
+  db.prepare('INSERT INTO sessions (token_hash, who, expires_at, created_at, brand_id) VALUES (?,?,?,?,?)').run(sha256(token), whoOf(p), expires, now.toISOString(), p.role === 'accountant' ? p.brand_id : null);
   return { principal: p, token, expires_at: expires };
 }
 
@@ -69,8 +81,17 @@ function authenticate(db, req, now) {
   const [kind, id] = s.who.split(':');
   const row = db.prepare(`SELECT * FROM ${kind === 'store' ? 'stores' : 'users'} WHERE id = ?`).get(Number(id));
   if (!row || !row.active) throw new ApiError('AUTH', '帳號已停用');
-  const p = principalOf(kind, row); p.token_hash = s.token_hash;
+  const p = principalOf(kind, row, db, s.brand_id); p.token_hash = s.token_hash;
   return p;
+}
+
+// 會計切換目前品牌：必須在自己的 user_brands 內，否則 FORBIDDEN
+function switchBrand(db, principal, brandId) {
+  if (principal.role !== 'accountant') throw new ApiError('FORBIDDEN', '只有會計帳號可以切換品牌');
+  if (typeof brandId !== 'string' || !principal.brands.some((b) => b.id === brandId)) throw new ApiError('FORBIDDEN', '沒有這個品牌的權限');
+  db.prepare('UPDATE sessions SET brand_id = ? WHERE token_hash = ?').run(brandId, principal.token_hash);
+  principal.brand_id = brandId;
+  return principal;
 }
 
 function logout(db, principal) { db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(principal.token_hash); }
@@ -88,4 +109,4 @@ function canSeeSlip(p, slip, { storeOwn = true } = {}) {
   return false;
 }
 
-module.exports = { hashPassword, verifyPassword, login, authenticate, logout, requireRole, canSeeSlip, whoOf, sha256 };
+module.exports = { hashPassword, verifyPassword, login, authenticate, logout, switchBrand, requireRole, canSeeSlip, whoOf, sha256 };

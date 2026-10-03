@@ -23,6 +23,14 @@
 - 廠商記憶進提示詞前會去掉換行與控制字元、反引號、大括號，每個品名截 40 字；核對畫面存的品名一律去頭尾空白。
 - 匯出 `legacy.xlsx`：admin 須指定品牌（`brand_id`）或門市（`store_id`），否則回「請選擇品牌」。
 
+## 部署（P4）
+Mac mini 部署手冊：`DEPLOY.md`（給 Mac mini 上的 Claude 逐步照做）；Eason 貼給它的開場白：`DEPLOY-prompt.txt`。
+- 與電子佈告欄並存：埠 8794、launchd 名稱 `com.dzy.purchase`／`com.dzy.purchase.backup`（範本在 `server/launchd/`）、資料夾 `~/dzy-purchase-data`；Funnel 以路徑 `/purchase` 分流，部署前後都要對照佈告欄 `/health`。
+- 工具：`server/tools/create-accounts.js`（建立正式門市／會計／admin，密碼只在終端機輸入）、`server/tools/ollama-bench.js`（用示範照片量辨識秒數，超過 300 秒改 7b）。
+- 門市代號：大寫英數 2–10 字（`CF`、`MDGF`、`MZTGF`、`MZTZS`、`MZTLZL`），不再綁品牌字首；登入時不分大小寫。品牌色與 logo 依登入後後端回傳的品牌決定。
+- 會計可管多個品牌（`user_brands`）：登入後 session 帶「目前品牌」，`POST /session/brand {brand_id}` 切換（不在清單內回 403），所有依品牌過濾的 API 都用目前品牌；多品牌會計的側欄上方有「目前品牌」切換，單品牌會計看不到。admin 管理頁帳號表單可勾多個品牌。
+- 前端 `web/js/config.js`：本機開頁預設連 `http://localhost:8794`；其他網址連部署的 Funnel 網址（倉庫存佔位字串，部署時依 DEPLOY.md 第 9 步取代，沒取代會顯示「尚未設定伺服器網址」）。`?api=` 覆寫只在本機開頁時生效。
+
 ## 部署順序（P3 損益推送）
 **必須先部署損益系統（mala-pnl-auto，PR #66 的 `purchasePush` 端點）再上線 Mac mini（本 repo）。**
 原因：定稿月遇到新進貨時，本系統靠損益端 LOCKED 回應附帶的 `live`（各科目目前活著的進貨系統列合計）與 `manual`（有活著人工列的科目）判斷要不要亮「進貨金額變動」黃燈、以及待撤回工作能不能直接結案。舊版損益端不回這兩個欄位時，本系統視為 `live` 全 0、`manual` 空，會讓所有定稿月份誤亮黃燈或卡在 locked 終態。
@@ -34,6 +42,6 @@
 DEMO_PASS='自訂密碼' DATA_DIR=spike/demodata node server/dev/demo-seed.js   # 會先整個清空 DATA_DIR 再重建；沒給 DEMO_PASS 就隨機產生並只印在終端機
 DATA_DIR=spike/demodata PORT=8794 node server/index.js                      # 用示範資料起伺服器
 ```
-- 帳號：門市 X01 X02 M01 M02 C01、會計 acc-x acc-m acc-c、管理者 admin，全部共用同一組 `DEMO_PASS`。
+- 帳號：門市 X01 X02 M01 M02 C01、會計 acc-x acc-m acc-c、多品牌會計 acc-cx（央廚＋小辛辣）、管理者 admin，全部共用同一組 `DEMO_PASS`。
 - 需要 macOS（照片用內建 `qlmanage`＋`sips` 產生 JPEG）；不呼叫任何外部服務、不需要 Ollama；`DATA_DIR` 路徑必須含 `demo`（防誤刪）。
 - 入帳走正式 API，所以廠商記憶、價格變動提醒、成本、損益推送排程都是正式邏輯算出來的。

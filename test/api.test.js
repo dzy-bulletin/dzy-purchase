@@ -15,11 +15,11 @@ test('健康檢查、資料表數量、重啟不重建', async () => {
     const r = await t.call('GET', '/health');
     assert.strictEqual(r.ok, true);
     const tables = t.app.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
-    assert.strictEqual(tables.length, 19);
+    assert.strictEqual(tables.length, 20);
     const { openDb } = require('../server/db');
     const again = openDb(t.dir);                                    // 同一資料夾再開一次：資料還在
     assert.strictEqual(again.prepare('SELECT COUNT(*) c FROM stores').get().c, 3);
-    assert.strictEqual(again.prepare('PRAGMA user_version').get().user_version, 6);
+    assert.strictEqual(again.prepare('PRAGMA user_version').get().user_version, 7);
     again.close();
     assert.ok((await t.call('GET', '/nope')).error === 'NOT_FOUND');
   } finally { await t.close(); }

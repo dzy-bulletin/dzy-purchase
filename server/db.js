@@ -74,7 +74,11 @@ const MIGRATIONS = [
    ALTER TABLE pnl_retire ADD COLUMN state TEXT;
    ALTER TABLE pnl_retire ADD COLUMN reason TEXT;
    ALTER TABLE pnl_pushed ADD COLUMN cents INTEGER NOT NULL DEFAULT 0;
-   CREATE TABLE pnl_inactive (store_id INTEGER NOT NULL, month TEXT NOT NULL, acc_id TEXT NOT NULL, PRIMARY KEY (store_id, month, acc_id));`
+   CREATE TABLE pnl_inactive (store_id INTEGER NOT NULL, month TEXT NOT NULL, acc_id TEXT NOT NULL, PRIMARY KEY (store_id, month, acc_id));`,
+  // v7（P4 契約補充）：會計可管多個品牌。user_brands＝會計有權的品牌；users.brand_id 保留為預設品牌；sessions.brand_id＝這次登入「目前品牌」
+  `CREATE TABLE user_brands (user_id INTEGER NOT NULL REFERENCES users(id), brand_id TEXT NOT NULL REFERENCES brands(id), PRIMARY KEY (user_id, brand_id));
+   ALTER TABLE sessions ADD COLUMN brand_id TEXT;
+   INSERT INTO user_brands (user_id, brand_id) SELECT id, brand_id FROM users WHERE role = 'accountant' AND brand_id IS NOT NULL;`
 ];
 
 function openDb(dataDir) {

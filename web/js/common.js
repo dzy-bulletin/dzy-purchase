@@ -62,6 +62,9 @@ var Common = (function () {
       return '<div class="sgrp" role="group" aria-label="' + g.label + '"><div class="slabel">' + g.label + '</div>' + items + '</div>';
     }).join('');
     var picker = s.role === 'admin' ? '<label class="spick">工作品牌<select id="brandPick">' + ['X', 'M', 'C'].map(function (b) { return '<option value="' + b + '"' + (adminBrand() === b ? ' selected' : '') + '>' + BRAND_NAME[b] + '</option>'; }).join('') + '</select></label>' : '';
+    if (s.role === 'accountant' && (s.brands || []).length > 1) {      // 多品牌會計：側欄上方品牌切換（單品牌不顯示）
+      picker = '<label class="spick">目前品牌<select id="brandSwitch">' + s.brands.map(function (b) { return '<option value="' + esc(b.id) + '"' + (s.brand_id === b.id ? ' selected' : '') + '>' + esc(b.name || BRAND_NAME[b.id] || b.id) + '</option>'; }).join('') + '</select></label>';
+    }
     return picker + '<nav id="snav" aria-label="主選單">' + groups + '</nav>' +
       '<div class="suser"><div class="who"><div class="nm">' + esc(s.name || '') + '</div><div class="rl">' + esc(ROLE_TEXT[s.role] || s.role) + '</div></div><button id="logout" type="button">登出</button></div>';
   }
@@ -71,7 +74,7 @@ var Common = (function () {
       (s && !o.nav ? '<button id="logout" type="button" class="hout">登出</button>' : '') + '</header>';
   }
 
-  /* o: {title, nav, roles:[...], loginTitle, loginHint, accLabel, upper, previewBrand(accountValue), onHash(key), onReady(session)}
+  /* o: {title, nav, roles:[...], loginTitle, loginHint, accLabel, upper, onHash(key), onReady(session)}
      o.nav：核對／報表／設定頁，登入後在視窗左側加側欄（上傳頁不給 nav，只有品牌色標題列） */
   function gate(o) {
     var hdr = $('hdr'), loginBox = $('login'), app = $('app'), shell = null;
@@ -91,7 +94,6 @@ var Common = (function () {
         '<label class="f" style="margin-top:.8rem">' + esc(o.accLabel || '帳號') + '<input id="acc" autocomplete="username" autocapitalize="none"></label>' +
         '<label class="f" style="margin-top:.8rem">密碼<input id="pw" type="password" autocomplete="current-password"></label>' +
         '<div id="loginMsg"></div><button id="loginBtn" class="primary" type="button" style="width:100%;margin-top:1rem;min-height:48px">登入</button></div></div>';
-      $('acc').addEventListener('input', function () { if (o.previewBrand) applyTheme(o.previewBrand(this.value.trim())); });
       $('loginBtn').onclick = doLogin;
       $('pw').addEventListener('keydown', function (e) { if (e.key === 'Enter') doLogin(); });
     }
@@ -111,6 +113,14 @@ var Common = (function () {
       applyTheme(s.role === 'admin' ? null : s.brand_id);
       if (o.nav) { ensureShell().classList.remove('hidden'); $('side').innerHTML = sideHTML(s); syncNav(); }
       $('logout').onclick = function () { API.logout(); showLogin(); };
+      if ($('brandSwitch')) $('brandSwitch').onchange = async function () {
+        var sel = this, want = sel.value, cur = s.brand_id;
+        try {
+          var r = await API.call('/session/brand', { method: 'POST', body: { brand_id: want } });
+          API.update({ brand_id: r.brand_id, brand: r.brand_id, brands: r.brands });
+          location.reload();                                   // 重新載入：所有清單、計數、報表都以新品牌重抓
+        } catch (e) { sel.value = cur; alert(e.message); }
+      };
       if ($('brandPick')) $('brandPick').onchange = function () { try { localStorage.setItem(ADMIN_KEY, this.value); } catch (e) {} location.reload(); };
       o.onReady(s);
     }

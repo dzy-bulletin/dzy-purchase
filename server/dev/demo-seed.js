@@ -241,8 +241,10 @@ async function main() {
   db.tx(() => {
     for (const [id, name] of BRANDS) db.prepare('INSERT INTO brands (id, name) VALUES (?,?)').run(id, name);
     for (const [code, brand, name] of STORES) ids.store[code] = Number(db.prepare('INSERT INTO stores (brand_id, code, name, pass_hash, pnl_unit_code) VALUES (?,?,?,?,?)').run(brand, code, name, passHash, `ZU-${code}`).lastInsertRowid);
-    for (const [u, role, brand, name] of [['acc-x', 'accountant', 'X', '小辛辣示範會計'], ['acc-m', 'accountant', 'M', '墨竹亭示範會計'], ['acc-c', 'accountant', 'C', '央廚示範會計'], ['admin', 'admin', null, '示範管理者']])
-      db.prepare('INSERT INTO users (username, role, brand_id, name, pass_hash) VALUES (?,?,?,?,?)').run(u, role, brand, name, passHash);
+    for (const [u, role, brand, name] of [['acc-x', 'accountant', 'X', '小辛辣示範會計'], ['acc-m', 'accountant', 'M', '墨竹亭示範會計'], ['acc-c', 'accountant', 'C', '央廚示範會計'], ['acc-cx', 'accountant', 'C', '央廚＋小辛辣示範會計（多品牌）'], ['admin', 'admin', null, '示範管理者']]) {
+      const uid = Number(db.prepare('INSERT INTO users (username, role, brand_id, name, pass_hash) VALUES (?,?,?,?,?)').run(u, role, brand, name, passHash).lastInsertRowid);
+      if (role === 'accountant') for (const b of (u === 'acc-cx' ? ['C', 'X'] : [brand])) db.prepare('INSERT INTO user_brands (user_id, brand_id) VALUES (?,?)').run(uid, b);
+    }
     let acc = { X: 1, M: 101, C: 201 }; const accOf = {};
     for (const [b] of BRANDS) {
       NAMES[b].vendors.forEach((vn, vi) => {

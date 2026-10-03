@@ -61,6 +61,7 @@ function msg(t, cls) { Common.showMsg('msg', t, cls); }
 function fieldHTML(f, v) {
   var val = v == null ? '' : v;
   if (f.type === 'check') return '<label class="chkline"><input type="checkbox" data-k="' + f.k + '"' + (v === undefined || v === null ? (f.def ? ' checked' : '') : (v ? ' checked' : '')) + '> ' + esc(f.label) + '</label>';
+  if (f.type === 'brands') return '<fieldset class="f brandchk" data-k="' + f.k + '" style="border:0;padding:0;margin:0"><legend style="padding:0;margin-bottom:.3rem">' + esc(f.label) + '</legend>' + BRAND_OPTS.map(function (b) { return '<label class="chkline" style="display:inline-flex;margin-right:1rem"><input type="checkbox" data-bk="' + b[0] + '"' + ((v || []).indexOf(b[0]) >= 0 ? ' checked' : '') + '> ' + esc(b[1]) + '</label>'; }).join('') + '</fieldset>';
   if (f.type === 'select') return '<label class="f">' + esc(f.label) + '<select data-k="' + f.k + '">' + f.options.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (String(o[0]) === String(val) ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select></label>';
   return '<label class="f">' + esc(f.label) + '<input data-k="' + f.k + '" type="' + (f.type || 'text') + '" value="' + (f.type === 'password' ? '' : esc(val)) + '"' + (f.ph ? ' placeholder="' + esc(f.ph) + '"' : '') + (f.type === 'password' ? ' autocomplete="new-password"' : '') + '></label>';
 }
@@ -68,7 +69,9 @@ function readForm(fields) {
   var o = {};
   fields.forEach(function (f) {
     var el = document.querySelector('#panel [data-k="' + f.k + '"]');
-    if (f.type === 'check') o[f.k] = el.checked ? 1 : 0; else o[f.k] = el.value.trim();
+    if (f.type === 'check') o[f.k] = el.checked ? 1 : 0;
+    else if (f.type === 'brands') o[f.k] = Array.prototype.map.call(el.querySelectorAll('input[data-bk]:checked'), function (c) { return c.dataset.bk; });
+    else o[f.k] = el.value.trim();
   });
   return o;
 }
@@ -208,10 +211,10 @@ async function viewStores() {
     list.map(function (s) { return '<tr class="' + (isOff(s.active) ? 'off' : '') + '"><td>' + esc(s.code) + '</td><td>' + esc(s.name) + '</td><td>' + esc(BRAND_NAME[s.brand_id] || s.brand_id) + '</td><td>' + (s.pnl_unit_code ? esc(s.pnl_unit_code) : '<span class="muted">未設定（不推損益）</span>') + '</td><td>' + stateCell(s.active) + '</td><td class="n"><button class="sm" type="button" data-e="' + s.id + '">編輯</button></td></tr>'; }).join('') + '</tbody></table></div>';
   function edit(s) {
     openForm({ title: s ? '編輯門市' : '新增門市', value: s || { active: 1, brand_id: 'X' },
-      fields: [{ k: 'code', label: '門市代號（X01／M03／C01）' }, { k: 'name', label: '門市名稱' }, { k: 'brand_id', label: '品牌', type: 'select', options: BRAND_OPTS }, { k: 'pnl_unit_code', label: '損益系統門市代號（空白＝不推損益）' }, { k: 'active', label: '啟用', type: 'check', def: 1 }, { k: 'password', label: '密碼', type: 'password', ph: s ? '留空＝不修改' : '' }],
+      fields: [{ k: 'code', label: '門市代號（大寫英數 2–10 字，例如 MDGF）' }, { k: 'name', label: '門市名稱' }, { k: 'brand_id', label: '品牌', type: 'select', options: BRAND_OPTS }, { k: 'pnl_unit_code', label: '損益系統門市代號（空白＝不推損益）' }, { k: 'active', label: '啟用', type: 'check', def: 1 }, { k: 'password', label: '密碼', type: 'password', ph: s ? '留空＝不修改' : '' }],
       onSave: function (o) {
         o.code = o.code.toUpperCase();
-        if (!/^[XMC]\d{2}$/.test(o.code)) throw new Error('門市代號格式：品牌字首（X／M／C）加 2 位數字');
+        if (!/^[A-Z0-9]{2,10}$/.test(o.code)) throw new Error('門市代號格式：大寫英文或數字 2–10 字');
         if (!o.name) throw new Error('請填門市名稱');
         if (!o.password) delete o.password; else if (o.password.length < 6) throw new Error('密碼至少 6 碼');
         if (!s && !o.password) throw new Error('新增門市要設定密碼');
@@ -226,16 +229,16 @@ async function viewStores() {
 async function viewUsers() {
   var list; try { list = await API.call('/admin/users'); } catch (e) { $('body').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; return; }
   var ROLE = { accountant: '會計', admin: '管理員' };
-  $('body').innerHTML = '<div class="tools"><button id="add" type="button" class="primary">＋ 新增帳號</button></div><div class="tblwrap"><table><thead><tr><th>帳號</th><th>姓名</th><th>角色</th><th>品牌</th><th>狀態</th><th></th></tr></thead><tbody>' +
-    list.map(function (u) { return '<tr class="' + (isOff(u.active) ? 'off' : '') + '"><td>' + esc(u.username) + '</td><td>' + esc(u.name) + '</td><td>' + esc(ROLE[u.role] || u.role) + '</td><td>' + esc(BRAND_NAME[u.brand_id] || '—') + '</td><td>' + stateCell(u.active) + '</td><td class="n"><button class="sm" type="button" data-e="' + u.id + '">編輯</button></td></tr>'; }).join('') + '</tbody></table></div>';
+  $('body').innerHTML = '<div class="tools"><button id="add" type="button" class="primary">＋ 新增帳號</button></div><div class="tblwrap"><table><thead><tr><th>帳號</th><th>姓名</th><th>角色</th><th>可管理品牌</th><th>狀態</th><th></th></tr></thead><tbody>' +
+    list.map(function (u) { return '<tr class="' + (isOff(u.active) ? 'off' : '') + '"><td>' + esc(u.username) + '</td><td>' + esc(u.name) + '</td><td>' + esc(ROLE[u.role] || u.role) + '</td><td>' + esc((u.brand_ids || []).map(function (b) { return BRAND_NAME[b] || b; }).join('、') || '—') + '</td><td>' + stateCell(u.active) + '</td><td class="n"><button class="sm" type="button" data-e="' + u.id + '">編輯</button></td></tr>'; }).join('') + '</tbody></table></div>';
   function edit(u) {
-    openForm({ title: u ? '編輯帳號' : '新增帳號', value: u || { active: 1, role: 'accountant', brand_id: 'X' },
+    openForm({ title: u ? '編輯帳號' : '新增帳號', value: u || { active: 1, role: 'accountant', brand_ids: ['X'] },
       fields: [{ k: 'username', label: '帳號' }, { k: 'name', label: '姓名' }, { k: 'role', label: '角色', type: 'select', options: [['accountant', '會計'], ['admin', '管理員']] },
-        { k: 'brand_id', label: '品牌（會計必填）', type: 'select', options: [['', '（無）']].concat(BRAND_OPTS) }, { k: 'active', label: '啟用', type: 'check', def: 1 }, { k: 'password', label: '密碼', type: 'password', ph: u ? '留空＝不修改' : '' }],
+        { k: 'brand_ids', label: '可管理品牌（會計至少勾一個，可多選；管理員免勾）', type: 'brands' }, { k: 'active', label: '啟用', type: 'check', def: 1 }, { k: 'password', label: '密碼', type: 'password', ph: u ? '留空＝不修改' : '' }],
       onSave: function (o) {
         if (!o.username || !o.name) throw new Error('請填帳號與姓名');
-        if (o.role === 'accountant' && !o.brand_id) throw new Error('會計帳號要選品牌');
-        if (o.role === 'admin') o.brand_id = null; else if (!o.brand_id) o.brand_id = null;
+        if (o.role === 'accountant' && !o.brand_ids.length) throw new Error('會計帳號至少要勾一個品牌');
+        if (o.role === 'admin') o.brand_ids = [];
         if (!o.password) delete o.password; else if (o.password.length < 6) throw new Error('密碼至少 6 碼');
         if (!u && !o.password) throw new Error('新增帳號要設定密碼');
         return u ? API.call('/admin/users/' + u.id, { method: 'PUT', body: o }) : API.call('/admin/users', { method: 'POST', body: o });
