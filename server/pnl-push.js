@@ -167,6 +167,7 @@ function createPnlPush(o) {
       const err = new Error(c); err.code = c; err.msg = cleanMessage(j && j.message, cfg);
       if (c === 'LOCKED' && j && j.live && typeof j.live === 'object' && !Array.isArray(j.live)) {     // 損益端回報該店該月各科目目前活著的進貨系統列合計（元）
         err.live = {}; for (const [a, v] of Object.entries(j.live)) if (typeof v === 'number' && isFinite(v)) err.live[String(a).slice(0, 30)] = v;
+        err.manual = Array.isArray(j.manual) ? j.manual.map((x) => String(x).slice(0, 30)) : [];     // #28：該店該月有活著人工列的科目（人贏機器，不亮進貨金額變動燈）
       }
       throw err;
     }
@@ -212,7 +213,9 @@ function createPnlPush(o) {
   function lockedDelta(e, entries) {
     const live = (e && e.live) || {};
     let delta = 0, diff = false;
+    const manual = new Set((e && Array.isArray(e.manual)) ? e.manual : []);
     for (const [a, v] of Object.entries(entries)) {
+      if (manual.has(a)) continue;                                      // #28：有活著的人工列＝該科目由人負責，略過、不計入 N
       const want = Math.round(v * 100), have = Math.round((Number(live[a]) || 0) * 100);
       if (Math.abs(want - have) >= 1) diff = true;
       delta += want - have;
@@ -266,6 +269,9 @@ function createPnlPush(o) {
     const entries = {}; for (const a of JSON.parse(row.accs)) entries[a] = 0;
     try { await post({ action: 'purchasePush', key: cfg.PNL_PURCHASE_KEY, store_id: row.unit_code, month: row.month, entries, pending_unmapped: 0 }); }
     catch (e) {
+      if (e && e.code === 'LOCKED' && e.live && Object.keys(entries).every((a) => !(Number(e.live[a]) >= 0.005 || Number(e.live[a]) <= -0.005))) {   // #30：定稿月但舊代號底下沒有任何活著的機器列＝已無殘值可撤，直接結案
+        del(); jobLog(db, 'pnl_retire', true, `store=${row.store_id} month=${row.month} 該月已定稿，但舊代號的進貨系統金額已為 0，結案`); return 'retired';
+      }
       if (e && TERMINAL_CODES[e.code]) {
         const state = TERMINAL_CODES[e.code];
         const reason = state === 'locked' ? `${row.month} 已定稿，舊代號的進貨系統金額無法撤回，請解除定稿或手動作廢` : `${row.month} 損益端拒收舊代號的撤回（${e.code}），請手動處理`;
@@ -300,6 +306,9 @@ function createPnlPush(o) {
       // #22：locked 終態一併清終態、重送一次（會計解除定稿→調整→再定稿後，隔天自動恢復；仍有差額的會再變回 locked、字樣刷新）。rejected 不清。
       const rl = db.prepare("UPDATE pnl_outbox SET state = NULL, reason = NULL, attempts = 0, next_at = NULL, first_fail_at = NULL, last_error = NULL, ver = ver + 1 WHERE state = 'locked'").run().changes;
       n += rl;
+      // #30：pnl_retire 的 locked 終態同樣清掉重試一次（解除定稿後自動撤回；仍 locked 的會再回到終態；rejected 不清）
+      const rr = db.prepare("UPDATE pnl_retire SET state = NULL, reason = NULL, attempts = 0, next_at = NULL, first_fail_at = NULL, last_error = NULL WHERE state = 'locked'").run().changes;
+      n += rr;
       jobLog(db, 'pnl_daily', true, `date=${today} 排入 ${n} 筆（含 locked 終態重送 ${rl} 筆；最近 3 個月：${months.join('、')}）`);
     });
     return n;

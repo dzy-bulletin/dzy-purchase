@@ -1057,3 +1057,63 @@ test('審查#25 先推成功、之後科目停用 → pnl_pushed 的該科目舊
     assert.deepStrictEqual(db.prepare('SELECT acc_id FROM pnl_pushed ORDER BY acc_id').all().map((r) => r.acc_id), ['5102']);
   } finally { await t.close(); await fake.close(); }
 });
+
+test('審查#28 LOCKED 回 manual（該科目有活著的人工列）→ 該科目略過不亮燈、不計入 N；機器列與人工列都不在才照原規則亮燈', async () => {
+  let resp = {};
+  const fake = await fakeServer(() => ({ json: { ok: false, error: 'LOCKED', message: 'x', ...resp } }));
+  const t = await startApp({ cfg: { PNL_PUSH_URL: fake.url, PNL_PURCHASE_KEY: KEY } });
+  try {
+    const db = t.app.db; pnlFixture(db); const sid = c01(db);
+    const mark = () => t.app.pnlPush.markDirty(sid, '2026-10-02', new Date().toISOString());
+    // (2b)：機器 2000 → 人工 123 → 損益端機器列被作廢，live=0、但有人工列 → 不亮燈
+    resp = { live: { 5101: 0, 5102: 0 }, manual: ['5101', '5102'] };
+    mark(); assert.strictEqual((await t.app.pnlPush.tick()).skipped, 1, '全部科目有人工列 → 略過');
+    assert.strictEqual(outboxCount(db), 0);
+    // 只有 5102 有人工列：5101 仍亮燈，N 只算 5101（707），不含 5102（614）
+    resp = { live: { 5101: 0, 5102: 0 }, manual: ['5102'] };
+    mark(); assert.strictEqual((await t.app.pnlPush.tick()).terminal, 1);
+    const reason = db.prepare('SELECT reason FROM pnl_outbox').get().reason;
+    assert.ok(reason.includes('+707 元') && !reason.includes('+1321'), reason);
+    // 機器列與人工列都不在（manual 空）→ 照原規則亮燈，N＝707＋614
+    db.prepare('DELETE FROM pnl_outbox').run();
+    resp = { live: { 5101: 0, 5102: 0 }, manual: [] };
+    mark(); assert.strictEqual((await t.app.pnlPush.tick()).terminal, 1);
+    assert.ok(db.prepare('SELECT reason FROM pnl_outbox').get().reason.includes('+1321 元'));
+  } finally { await t.close(); await fake.close(); }
+});
+
+test('審查#30 retire 遇 LOCKED 且 live 全 0 → 直接結案；live 有殘值 → locked 終態，04:10 補排清終態重試（rejected 不清）', async () => {
+  let mode = 'open';
+  const fake = await fakeServer((b) => {
+    if (b.store_id === 'U-C01' && mode !== 'open') return { json: { ok: false, error: 'LOCKED', message: 'x', live: mode === 'zero' ? { 5101: 0, 5102: 0 } : { 5101: 100, 5102: 0 }, manual: [] } };
+    return OK();
+  });
+  const clock = { t: Date.parse('2026-10-03T20:20:00Z') };                  // 台北 10/04 04:20
+  const t = await startApp({ now: () => new Date(clock.t), cfg: { PNL_PUSH_URL: fake.url, PNL_PURCHASE_KEY: KEY } });
+  try {
+    const db = t.app.db, k = await tokens(t), sid = (pnlFixture(db), c01(db));
+    t.app.pnlPush.markDirty(sid, '2026-10-02', new Date(clock.t).toISOString()); await t.app.pnlPush.tick();
+    await t.call('PUT', `/admin/stores/${sid}`, { token: k.admin, body: { pnl_unit_code: 'U-NEW' } });
+    assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM pnl_retire').get().c, 1);
+    mode = 'zero';
+    // live 全 0 → 結案
+    let r = await t.app.pnlPush.tick();
+    assert.strictEqual(r.retired, 1); assert.strictEqual(r.terminal, 0);
+    assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM pnl_retire').get().c, 0, '結案');
+    // 有殘值 → locked 終態
+    mode = 'residual';
+    t.app.pnlPush.markDirty(sid, '2026-10-02', new Date(clock.t).toISOString());
+    db.prepare("INSERT INTO pnl_retire (store_id, month, unit_code, accs, created_at) VALUES (?,?,?,?,?)").run(sid, '2026-10', 'U-C01', JSON.stringify(['5101', '5102']), new Date(clock.t).toISOString());
+    db.prepare("INSERT INTO pnl_retire (store_id, month, unit_code, accs, created_at) VALUES (?,?,?,?,?)").run(sid, '2026-09', 'U-C01', JSON.stringify(['5101']), new Date(clock.t).toISOString());
+    await t.app.pnlPush.tick();
+    assert.strictEqual(db.prepare("SELECT COUNT(*) c FROM pnl_retire WHERE state = 'locked'").get().c, 2);
+    db.prepare("UPDATE pnl_retire SET state = 'rejected' WHERE month = '2026-09'").run();
+    // 隔天 04:20 補排：locked 清終態、rejected 不清
+    clock.t += 24 * 3600e3; mode = 'open';
+    t.app.pnlPush.dailyRefresh();
+    assert.strictEqual(db.prepare("SELECT COUNT(*) c FROM pnl_retire WHERE state = 'rejected'").get().c, 1);
+    assert.strictEqual(db.prepare("SELECT COUNT(*) c FROM pnl_retire WHERE state IS NULL").get().c, 1);
+    await t.app.pnlPush.tick();
+    assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM pnl_retire').get().c, 1, '只剩 rejected');
+  } finally { await t.close(); await fake.close(); }
+});
