@@ -96,9 +96,12 @@ function rows_(list, cols) {
         if (typeof v !== 'number' || !isFinite(v)) return null;
         row.push(v);
       } else {
-        if (typeof v === 'number' && isFinite(v)) v = String(v);
+        var wasNum = typeof v === 'number' && isFinite(v);
+        if (wasNum) v = String(v);
         if (typeof v !== 'string') return null;
-        row.push(v.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').slice(0, MAX_CELL_));
+        v = v.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').slice(0, MAX_CELL_);
+        if (!wasNum && /^[=+\-@]/.test(v)) v = "'" + v;      // 防公式注入雙保險：=、+、-、@ 開頭的文字前面加 '（欄位同時設成純文字格式）
+        row.push(v);
       }
     }
     out.push(row);

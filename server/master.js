@@ -99,7 +99,7 @@ module.exports = function register(ctx) {
         const uc = unitCode(b.pnl_unit_code);
         if ((s.pnl_unit_code || null) !== uc) {
           set.pnl_unit_code = uc;
-          db.prepare('DELETE FROM pnl_pushed WHERE store_id = ?').run(s.id);          // 換了損益端的代號 → 「曾推過的科目」重新來過
+          P.retireOldCode(db, s.id, s.pnl_unit_code, new Date().toISOString());        // 舊代號在損益端的機器列要先推 0 撤回（成功才刪待撤回工作）；本地「曾推過」清單換新代號重新來過
           P.markAllForStore(db, s.id, new Date().toISOString());                       // 設定／更換代號 → 該店所有有入帳的月份推一次
         }
       }

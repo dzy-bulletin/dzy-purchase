@@ -60,7 +60,11 @@ const MIGRATIONS = [
    CREATE TABLE pnl_outbox (
      store_id INTEGER NOT NULL, month TEXT NOT NULL, dirty_at TEXT NOT NULL, ver INTEGER NOT NULL DEFAULT 1,
      attempts INTEGER NOT NULL DEFAULT 0, next_at TEXT, first_fail_at TEXT, last_error TEXT, PRIMARY KEY (store_id, month));
-   CREATE TABLE pnl_pushed (store_id INTEGER NOT NULL, month TEXT NOT NULL, acc_id TEXT NOT NULL, PRIMARY KEY (store_id, month, acc_id));`
+   CREATE TABLE pnl_pushed (store_id INTEGER NOT NULL, month TEXT NOT NULL, acc_id TEXT NOT NULL, PRIMARY KEY (store_id, month, acc_id));`,
+  // v5（P3 審查 #2）：門市換／清空損益代號時，舊代號在損益端的機器列要先推 0 撤回——每個（店、月、舊代號）一筆待撤回工作，帶著當時推過的科目清單；成功才刪
+  `CREATE TABLE pnl_retire (
+     store_id INTEGER NOT NULL, month TEXT NOT NULL, unit_code TEXT NOT NULL, accs TEXT NOT NULL, created_at TEXT NOT NULL,
+     attempts INTEGER NOT NULL DEFAULT 0, next_at TEXT, first_fail_at TEXT, last_error TEXT, PRIMARY KEY (store_id, month, unit_code));`
 ];
 
 function openDb(dataDir) {

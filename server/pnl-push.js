@@ -18,8 +18,25 @@ function markDirty(db, storeId, docDate, at) {
   const month = MONTH_RE.test(String(docDate)) ? String(docDate) : monthOf(docDate);
   if (!storeId || !MONTH_RE.test(month)) return false;
   db.prepare(`INSERT INTO pnl_outbox (store_id, month, dirty_at, ver) VALUES (?,?,?,1)
-    ON CONFLICT(store_id, month) DO UPDATE SET ver = ver + 1, dirty_at = excluded.dirty_at, next_at = NULL`).run(storeId, month, at || new Date().toISOString());
+    ON CONFLICT(store_id, month) DO UPDATE SET ver = ver + 1, dirty_at = excluded.dirty_at`).run(storeId, month, at || new Date().toISOString());
   return true;
+}
+// 門市換／清空損益代號（P3 審查 #2）：把本地記著「曾推過」的（月、科目）轉成「對舊代號推 0」的待撤回工作（pnl_retire），
+// 並清掉該店的 pnl_pushed（新代號重新來過）。待撤回工作成功送出才會刪；推不成功就一直排隊、/health 會看得到。
+function retireOldCode(db, storeId, oldCode, at) {
+  const rows = db.prepare('SELECT month, acc_id FROM pnl_pushed WHERE store_id = ? ORDER BY month, acc_id').all(storeId);
+  if (oldCode) {
+    const byMonth = new Map();
+    for (const r of rows) { if (!byMonth.has(r.month)) byMonth.set(r.month, []); byMonth.get(r.month).push(r.acc_id); }
+    for (const [month, accs] of byMonth) {
+      const cur = db.prepare('SELECT accs FROM pnl_retire WHERE store_id = ? AND month = ? AND unit_code = ?').get(storeId, month, oldCode);
+      const merged = [...new Set((cur ? JSON.parse(cur.accs) : []).concat(accs))].sort();
+      db.prepare(`INSERT INTO pnl_retire (store_id, month, unit_code, accs, created_at) VALUES (?,?,?,?,?)
+        ON CONFLICT(store_id, month, unit_code) DO UPDATE SET accs = excluded.accs, attempts = 0, next_at = NULL`).run(storeId, month, oldCode, JSON.stringify(merged), at || new Date().toISOString());
+    }
+  }
+  db.prepare('DELETE FROM pnl_pushed WHERE store_id = ?').run(storeId);
+  return rows.length;
 }
 // 該店所有有已入帳貨單的月份（門市損益代號變更時用）
 function markAllForStore(db, storeId, at) {
@@ -88,6 +105,15 @@ function unmappedReport(db, opts) {
   return { rows, total: calc.fromCents(total) };
 }
 
+// 遠端錯誤訊息清洗：去控制字元、網址、疑似金鑰（長英數串、設定的金鑰本身），截 200 字
+function cleanMessage(m, cfg) {
+  if (m == null || typeof m === 'object') return '';
+  let t = String(m).replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
+  const k = cfg && cfg.PNL_PURCHASE_KEY; if (k) t = t.split(k).join('[key]');
+  t = t.replace(/https?:\/\/\S+/gi, '[url]').replace(/[A-Za-z0-9_\-]{24,}/g, '[redacted]').replace(/\s+/g, ' ').trim();
+  return t.slice(0, 200);
+}
+
 // ---------- 推送器 ----------
 function createPnlPush(o) {
   const { db, cfg } = o;
@@ -109,16 +135,24 @@ function createPnlPush(o) {
       const err = new Error(t ? 'TIMEOUT' : 'NETWORK'); err.code = err.message; throw err;
     }
     let j; try { j = JSON.parse(text); } catch (e) { const err = new Error('NOT_JSON'); err.code = 'NOT_JSON'; throw err; }
-    if (!j || j.ok !== true) { const c = String((j && (j.code || j.error)) || 'REJECTED').replace(/[^A-Za-z0-9_]/g, '').slice(0, 40) || 'REJECTED'; const err = new Error(c); err.code = c; throw err; }
+    if (!j || j.ok !== true) {
+      const c = String((j && (j.code || j.error)) || 'REJECTED').replace(/[^A-Za-z0-9_]/g, '').slice(0, 40) || 'REJECTED';
+      const err = new Error(c); err.code = c; err.msg = cleanMessage(j && j.message, cfg); throw err;
+    }
     return j.data || {};
   }
 
-  function fail(row, code) {
+  // 失敗：記錯誤碼＋清洗過的遠端訊息（≤200 字）到 last_error 與 jobs_log；table＝pnl_outbox 或 pnl_retire
+  function fail(row, e, table) {
+    table = table || 'pnl_outbox';
+    const code = (e && e.code) || 'ERROR';
+    const detail = code + (e && e.msg ? ': ' + e.msg : '');
     const at = now(); const attempts = row.attempts + 1;
-    db.prepare('UPDATE pnl_outbox SET attempts = ?, next_at = ?, first_fail_at = COALESCE(first_fail_at, ?), last_error = ? WHERE store_id = ? AND month = ?')
-      .run(attempts, new Date(at.getTime() + backoffMs(attempts)).toISOString(), at.toISOString(), code, row.store_id, row.month);
-    jobLog(db, 'pnl_push', false, `store=${row.store_id} month=${row.month} code=${code} attempts=${attempts}`);
-    log(`pnl_push 失敗 ${row.store_id} ${row.month} ${code}（第 ${attempts} 次）`);
+    const where = table === 'pnl_retire' ? 'store_id = ? AND month = ? AND unit_code = ?' : 'store_id = ? AND month = ?';
+    db.prepare(`UPDATE ${table} SET attempts = ?, next_at = ?, first_fail_at = COALESCE(first_fail_at, ?), last_error = ? WHERE ${where}`)
+      .run(attempts, new Date(at.getTime() + backoffMs(attempts)).toISOString(), at.toISOString(), detail, row.store_id, row.month, ...(table === 'pnl_retire' ? [row.unit_code] : []));
+    jobLog(db, table === 'pnl_retire' ? 'pnl_retire' : 'pnl_push', false, `store=${row.store_id} month=${row.month} code=${code} attempts=${attempts}${e && e.msg ? ' msg=' + e.msg : ''}`);
+    log(`${table === 'pnl_retire' ? 'pnl_retire' : 'pnl_push'} 失敗 ${row.store_id} ${row.month} ${code}（第 ${attempts} 次）`);
   }
   const drop = (row) => db.prepare('DELETE FROM pnl_outbox WHERE store_id = ? AND month = ? AND ver = ?').run(row.store_id, row.month, row.ver);
 
@@ -133,10 +167,12 @@ function createPnlPush(o) {
     let data;
     try {
       data = await post({ action: 'purchasePush', key: cfg.PNL_PURCHASE_KEY, store_id: store.pnl_unit_code, month: row.month, entries, pending_unmapped: calc.fromCents(calcd.unmapped) });
-    } catch (e) { fail(row, e.code || 'ERROR'); return 'failed'; }
+    } catch (e) { fail(row, e); return 'failed'; }
     db.tx(() => {
       const ins = db.prepare('INSERT OR IGNORE INTO pnl_pushed (store_id, month, acc_id) VALUES (?,?,?)');
       Object.keys(entries).forEach((a) => ins.run(row.store_id, row.month, a));
+      // 成功 → 重設退避狀態（ver 變了列還在時，不能把舊的失敗紀錄帶到下一輪）；沒被改過才刪
+      db.prepare('UPDATE pnl_outbox SET attempts = 0, first_fail_at = NULL, last_error = NULL, next_at = NULL WHERE store_id = ? AND month = ?').run(row.store_id, row.month);
       drop(row);                                                       // ver 變了（送出期間又被改）→ 不刪，下一輪再推
     });
     const sk = Array.isArray(data.skipped_manual) ? data.skipped_manual.map((x) => String(x).slice(0, 30)).join(',') : '';
@@ -144,14 +180,29 @@ function createPnlPush(o) {
     return 'ok';
   }
 
+  // 待撤回工作：對舊代號推 0（entries 全 0），成功才刪。若門市後來又改回這個代號 → 不用撤，交給一般推送
+  async function retireOne(row) {
+    const store = db.prepare('SELECT pnl_unit_code FROM stores WHERE id = ?').get(row.store_id);
+    const del = () => db.prepare('DELETE FROM pnl_retire WHERE store_id = ? AND month = ? AND unit_code = ?').run(row.store_id, row.month, row.unit_code);
+    if (store && store.pnl_unit_code === row.unit_code) { del(); jobLog(db, 'pnl_retire', true, `store=${row.store_id} month=${row.month} 門市改回原代號，免撤回`); return 'retired'; }
+    const entries = {}; for (const a of JSON.parse(row.accs)) entries[a] = 0;
+    try { await post({ action: 'purchasePush', key: cfg.PNL_PURCHASE_KEY, store_id: row.unit_code, month: row.month, entries, pending_unmapped: 0 }); }
+    catch (e) { fail(row, e, 'pnl_retire'); return 'failed'; }
+    del();
+    jobLog(db, 'pnl_retire', true, `store=${row.store_id} month=${row.month} accounts=${Object.keys(entries).length} 舊代號已推 0`);
+    return 'retired';
+  }
+
   // 處理到期的 outbox；回傳各結果筆數。force＝忽略退避時間（手動／測試）
   async function tick(opt) {
     if (running) return { busy: true };
     if (!configured()) return { configured: false };
     running = true;
-    const out = { ok: 0, failed: 0, skipped: 0, empty: 0 };
+    const out = { ok: 0, failed: 0, skipped: 0, empty: 0, retired: 0 };
     try {
       const t = now().toISOString();
+      const due = opt && opt.force ? '9999' : t;
+      for (const r of db.prepare('SELECT * FROM pnl_retire WHERE (next_at IS NULL OR next_at <= ?) ORDER BY created_at, store_id, month LIMIT 50').all(due)) { const k = await retireOne(r); out[k]++; }   // 先撤舊代號，再推新代號
       const rows = db.prepare('SELECT * FROM pnl_outbox WHERE (next_at IS NULL OR next_at <= ?) ORDER BY dirty_at, store_id, month LIMIT 50').all(opt && opt.force ? '9999' : t);
       for (const r of rows) { const k = await pushOne(r); out[k]++; }
     } catch (e) { jobLog(db, 'pnl_push', false, 'tick 例外 ' + String(e && e.message).slice(0, 200)); }
@@ -163,12 +214,12 @@ function createPnlPush(o) {
 
   // /health 用：不含任何貨單內容
   function status() {
-    const pending = db.prepare('SELECT COUNT(*) c FROM pnl_outbox').get().c;
-    const f = db.prepare('SELECT MIN(first_fail_at) t FROM pnl_outbox WHERE first_fail_at IS NOT NULL').get();
+    const pending = db.prepare('SELECT COUNT(*) c FROM pnl_outbox').get().c + db.prepare('SELECT COUNT(*) c FROM pnl_retire').get().c;
+    const f = db.prepare('SELECT MIN(t) t FROM (SELECT MIN(first_fail_at) t FROM pnl_outbox WHERE first_fail_at IS NOT NULL UNION ALL SELECT MIN(first_fail_at) FROM pnl_retire WHERE first_fail_at IS NOT NULL)').get();
     const ok = db.prepare("SELECT MAX(at) t FROM jobs_log WHERE job = 'pnl_push' AND ok = 1").get();
     return { configured: configured(), pending, failing_since: (f && f.t) || null, last_ok_at: (ok && ok.t) || null };
   }
   return { tick, start, stop, status, configured, markDirty: (storeId, docDate, at) => markDirty(db, storeId, docDate, at) };
 }
 
-module.exports = { createPnlPush, markDirty, markAllForStore, markForVendorCategory, markForItem, computeMonth, unmappedReport, loadMap, backoffMs };
+module.exports = { createPnlPush, cleanMessage, retireOldCode, markDirty, markAllForStore, markForVendorCategory, markForItem, computeMonth, unmappedReport, loadMap, backoffMs };

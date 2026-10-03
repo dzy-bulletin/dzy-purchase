@@ -78,7 +78,8 @@ function allocateTax(catCents, taxCents) {
   const out = Object.assign({}, catCents);
   const cats = COST_CATS.filter((c) => catCents[c] > 0);
   const sum = cats.reduce((s, c) => s + catCents[c], 0);
-  if (!taxCents || !cats.length || sum <= 0) return out;
+  if (!taxCents) return out;
+  if (!cats.length || sum <= 0) { out['未分類'] += taxCents; return out; }     // 各列金額都是 0 但有稅額：稅額歸「未分類」，類別合計仍＝總額（P3 審查 #11）
   let used = 0;
   cats.forEach((c, i) => {
     const share = i === cats.length - 1 ? taxCents - used : Math.round(taxCents * catCents[c] / sum);

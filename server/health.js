@@ -34,16 +34,30 @@ function readBackupLast(cfg) {
 
 module.exports = function register(ctx) {
   const { route, db, cfg, now, pnlPush, sendJson, corsHeaders, RAW } = ctx;
+  // P3 審查 #8：/health 是公開端點，Ollama 探測與「待補對照」（掃全部已入帳明細）都快取，避免被連打時每次都重算
+  const CACHE_MS = cfg.HEALTH_CACHE_MS === undefined ? 30000 : cfg.HEALTH_CACHE_MS;
+  let ollamaC = null, unmappedC = null;
+  async function checkOllama() {
+    const t = Date.now();
+    if (ollamaC && t - ollamaC.at < CACHE_MS) return ollamaC.v;
+    let v = false;
+    try { const r = await fetch(cfg.OLLAMA_URL + '/api/tags', { signal: AbortSignal.timeout(1500) }); v = r.ok; } catch (e) { /* 沒開 */ }
+    ollamaC = { at: t, v }; return v;
+  }
+  function unmappedTotal() {
+    const t = Date.now();
+    if (unmappedC && t - unmappedC.at < CACHE_MS) return unmappedC.v;
+    const v = P.unmappedReport(db).total; unmappedC = { at: t, v }; return v;
+  }
   route('GET', /^\/health$/, null, async ({ req, res }) => {
-    let ollama = false;
-    try { const r = await fetch(cfg.OLLAMA_URL + '/api/tags', { signal: AbortSignal.timeout(1500) }); ollama = r.ok; } catch (e) { /* 沒開 */ }
+    const ollama = await checkOllama();
     const t = now();
     const q = db.prepare("SELECT COUNT(*) c, MIN(uploaded_at) o FROM slips WHERE status IN ('uploaded','queued','recognizing')").get();
     const oldest_min = q.o ? Math.max(0, Math.floor((t.getTime() - Date.parse(q.o)) / 60e3)) : 0;
     const failed_count = db.prepare("SELECT COUNT(*) c FROM slips WHERE status = 'failed'").get().c;
     const needed = db.prepare("SELECT 1 FROM slips WHERE status = 'confirmed' LIMIT 1").get() ? true : false;
     const ps = pnlPush.status();
-    const unmapped_amount = P.unmappedReport(db).total;
+    const unmapped_amount = unmappedTotal();
     const body = {
       server: true, time: t.toISOString(), model: cfg.MODEL, ollama,
       queue: { waiting: q.c, oldest_min },
