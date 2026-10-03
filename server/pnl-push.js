@@ -7,6 +7,7 @@
 //  - 終態（Eason 定案 #3）：損益端回 LOCKED（該月已定稿）→ outbox.state＝'locked'；回 BAD_INPUT → 'rejected'；兩者都不再自動重試，
 //    /health 黃燈帶 reason；新的入帳／取消入帳（markDirty）或手動「重推」（retryNow）會清掉終態重新排入。AUTH／網路／逾時／忙碌照舊指數退避。
 //  - 停用科目（Eason 定案 #2）：損益端回 inactive:[acc_id] → 記進 pnl_inactive，這些金額歸入「待補對照」（原因「科目已停用」）
+//  - 損益端未預期例外回 INTERNAL（#12）→ 一般失敗、指數退避（不是終態）；每天 04:10（台北）對每個有損益代號的門市最近 3 個月排入一次（#13，冪等）
 //  - PNL_PUSH_URL／PNL_PURCHASE_KEY 沒設 → 不推（outbox 保留），/health 顯示「損益推送未設定」（黃）
 const calc = require('./calc');
 const { jobLog } = require('./db');
@@ -16,6 +17,7 @@ const monthOf = (d) => String(d || '').slice(0, 7);
 const REASON_UNMAPPED = '未對照';
 const REASON_INACTIVE = '科目已停用';
 const TERMINAL_CODES = { LOCKED: 'locked', BAD_INPUT: 'rejected' };    // 這兩種回應重試也不會變好 → 終態，不再自動重試
+const DAILY_AT = '04:10';                                                  // 台北時間，每日補排時刻（#13）
 const BACKOFF_CAP_MS = 30 * 60e3;
 const backoffMs = (attempts) => Math.min(BACKOFF_CAP_MS, 60e3 * Math.pow(2, Math.max(0, attempts - 1)));   // 1、2、4、8、16 分，之後 30 分
 
@@ -191,15 +193,26 @@ function createPnlPush(o) {
     if (state === 'locked') {
       const pushed = db.prepare('SELECT COALESCE(SUM(cents),0) c FROM pnl_pushed WHERE store_id = ? AND month = ?').get(row.store_id, row.month).c;
       const cur = Object.values(calcd.entries).reduce((a, b) => a + b, 0);
-      reason = `${row.month} 已定稿，有新進貨 ${yuan(Math.abs(cur - pushed))} 元未入損益，請解除定稿或手動調整`;
+      // N＝目前應推總額 − 最後一次成功推送總額（與「上次送出值」的差，含停用／被人工跳過科目的送出值）；字樣帶方向，會計才知道該加還是該減
+      const d = cur - pushed;
+      reason = `${row.month} 已定稿（${storeName(row.store_id)}），進貨金額變動 ${d < 0 ? '−' : '+'}${yuan(Math.abs(d))} 元未反映到損益，請解除定稿或手動調整`;
     } else {
-      reason = `${row.month} 損益端拒收（${code}${e && e.msg ? ': ' + e.msg : ''}），進貨金額未入損益，請檢查科目對照`;
+      reason = `${row.month} 損益端拒收（${code}${e && e.msg ? ': ' + e.msg : ''}），進貨金額未入損益，請檢查科目對照或損益端門市設定`;
     }
     const detail = code + (e && e.msg ? ': ' + e.msg : '');
     const r = db.prepare('UPDATE pnl_outbox SET state = ?, reason = ?, last_error = ?, attempts = attempts + 1, next_at = NULL, first_fail_at = NULL WHERE store_id = ? AND month = ? AND ver = ?')
       .run(state, reason, detail, row.store_id, row.month, row.ver);
     jobLog(db, 'pnl_push', false, `store=${row.store_id} month=${row.month} code=${code} 終態(${state}) 不再重試${e && e.msg ? ' msg=' + e.msg : ''}`);
     log(`pnl_push 終態 ${row.store_id} ${row.month} ${code}${r.changes ? '' : '（送出期間又被改，留待下一輪）'}`);
+  }
+
+  // 這次要送的 entries（元）與 pnl_pushed 記著的上次成功送出值逐科目完全相同？（兩邊都空不算「相同」：沒推過就是新資料）
+  function lockedNoChange(row, entries) {
+    const pushed = db.prepare('SELECT acc_id, cents FROM pnl_pushed WHERE store_id = ? AND month = ?').all(row.store_id, row.month);
+    if (!pushed.length) return false;
+    const m = new Map(pushed.map((r) => [r.acc_id, r.cents]));
+    const keys = Object.keys(entries);
+    return keys.length === m.size && keys.every((a) => m.get(a) === Math.round(entries[a] * 100));
   }
 
   async function pushOne(row) {
@@ -214,6 +227,9 @@ function createPnlPush(o) {
     try {
       data = await post({ action: 'purchasePush', key: cfg.PNL_PURCHASE_KEY, store_id: store.pnl_unit_code, month: row.month, entries, pending_unmapped: calc.fromCents(calcd.unmapped) });
     } catch (e) {
+      if (e && e.code === 'LOCKED' && lockedNoChange(row, entries)) {      // 已定稿月、但這次內容與上次成功推送完全相同（例如每日重送）→ 沒有新進貨，不是問題
+        drop(row); jobLog(db, 'pnl_skip', true, `store=${row.store_id} month=${row.month} 該月已定稿且金額無變動，略過`); return 'skipped';
+      }
       if (e && TERMINAL_CODES[e.code]) { terminal(row, e, calcd); return 'terminal'; }
       fail(row, e); return 'failed';
     }
@@ -257,6 +273,26 @@ function createPnlPush(o) {
     return 'retired';
   }
 
+  // #13：每天台北 04:10 起，對每個有設損益代號的門市最近 3 個月（本月＋前 2 個月）各排入一次。
+  // 補上「本系統收不到事件」的情況（損益端人工列被作廢、機器值沒回來等）。冪等：已在 outbox 的不動；終態列（已定稿／被拒收）也不動
+  // （只有新入帳／取消入帳／手動重推才會解除終態）；損益端同金額再推不新增。每個台北日期只做一次（記在 jobs_log，重開機不重做）。
+  function dailyRefresh() {
+    const t = now(); const tp = new Date(t.getTime() + 8 * 3600e3);
+    const today = tp.toISOString().slice(0, 10);
+    if (tp.toISOString().slice(11, 16) < DAILY_AT) return 0;
+    const done = db.prepare("SELECT 1 FROM jobs_log WHERE job = 'pnl_daily' AND ok = 1 AND detail LIKE ? LIMIT 1").get(`date=${today}%`);
+    if (done) return 0;
+    const y = tp.getUTCFullYear(), mo = tp.getUTCMonth();
+    const months = [0, 1, 2].map((i) => { const d = new Date(Date.UTC(y, mo - i, 1)); return d.toISOString().slice(0, 7); });
+    let n = 0;
+    db.tx(() => {
+      const ins = db.prepare('INSERT OR IGNORE INTO pnl_outbox (store_id, month, dirty_at, ver) VALUES (?,?,?,1)');
+      for (const s of db.prepare("SELECT id FROM stores WHERE pnl_unit_code IS NOT NULL AND pnl_unit_code <> ''").all()) for (const m of months) n += ins.run(s.id, m, t.toISOString()).changes;
+      jobLog(db, 'pnl_daily', true, `date=${today} 排入 ${n} 筆（最近 3 個月：${months.join('、')}）`);
+    });
+    return n;
+  }
+
   // 處理到期的 outbox；回傳各結果筆數。force＝忽略退避時間（手動／測試）
   async function tick(opt) {
     if (running) return { busy: true };
@@ -273,7 +309,7 @@ function createPnlPush(o) {
     finally { running = false; }
     return out;
   }
-  function start() { if (timer) return; timer = setInterval(() => { tick(); }, cfg.PNL_TICK_MS || 60000); if (timer.unref) timer.unref(); }
+  function start() { if (timer) return; timer = setInterval(() => { try { dailyRefresh(); } catch (e) { jobLog(db, 'pnl_daily', false, String(e && e.message).slice(0, 200)); } tick(); }, cfg.PNL_TICK_MS || 60000); if (timer.unref) timer.unref(); }
   function stop() { if (timer) clearInterval(timer); timer = null; }
 
   // /health 用：不含任何貨單內容
@@ -290,7 +326,7 @@ function createPnlPush(o) {
     return db.prepare(`SELECT * FROM (${q}) ${brandId ? 'WHERE brand_id = ?' : ''} ORDER BY month, store_id`).all(...(brandId ? [brandId] : []))
       .map((r) => ({ kind: r.kind, store_id: r.store_id, store_name: r.store_name, month: r.month, state: r.state, reason: r.reason }));
   }
-  return { tick, start, stop, status, terminalList, configured, retryNow: (storeId, month, at) => retryNow(db, storeId, month, at), markDirty: (storeId, docDate, at) => markDirty(db, storeId, docDate, at) };
+  return { tick, dailyRefresh, start, stop, status, terminalList, configured, retryNow: (storeId, month, at) => retryNow(db, storeId, month, at), markDirty: (storeId, docDate, at) => markDirty(db, storeId, docDate, at) };
 }
 
 module.exports = { createPnlPush, cleanMessage, retireOldCode, retryNow, markDirty, markAllForStore, markForVendorCategory, markForItem, computeMonth, unmappedReport, loadMap, backoffMs };
