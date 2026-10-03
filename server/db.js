@@ -1,0 +1,91 @@
+'use strict';
+// SQLite 資料層：建表＋以 PRAGMA user_version 做版本遷移（重啟不重建、不掉資料）
+const { DatabaseSync } = require('node:sqlite');
+const fs = require('fs');
+const path = require('path');
+
+const MIGRATIONS = [
+  // v1：spec 第 5 節 14 張表（另加幾個必要欄位，見 README／回報）
+  `
+  CREATE TABLE brands (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+  CREATE TABLE stores (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, brand_id TEXT NOT NULL REFERENCES brands(id), code TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL, pass_hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, pnl_unit_code TEXT,
+    fail_count INTEGER NOT NULL DEFAULT 0, locked_until TEXT);
+  CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE, role TEXT NOT NULL CHECK (role IN ('accountant','admin')),
+    brand_id TEXT REFERENCES brands(id), name TEXT NOT NULL, pass_hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
+    fail_count INTEGER NOT NULL DEFAULT 0, locked_until TEXT);
+  CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, who TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL);
+  CREATE TABLE vendors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, brand_id TEXT NOT NULL REFERENCES brands(id), name TEXT NOT NULL,
+    aliases TEXT NOT NULL DEFAULT '[]', active INTEGER NOT NULL DEFAULT 1);
+  CREATE TABLE items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, brand_id TEXT NOT NULL REFERENCES brands(id), name TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT '食材', base_unit TEXT NOT NULL DEFAULT '');
+  CREATE TABLE item_aliases (
+    vendor_id INTEGER NOT NULL, raw_name TEXT NOT NULL, item_id INTEGER NOT NULL, PRIMARY KEY (vendor_id, raw_name));
+  CREATE TABLE unit_conv (item_id INTEGER NOT NULL, unit TEXT NOT NULL, factor_to_base REAL NOT NULL, PRIMARY KEY (item_id, unit));
+  CREATE TABLE slips (
+    id TEXT PRIMARY KEY, client_id TEXT NOT NULL UNIQUE, store_id INTEGER NOT NULL REFERENCES stores(id),
+    brand_id TEXT NOT NULL, vendor_id INTEGER REFERENCES vendors(id), vendor_name_raw TEXT,
+    status TEXT NOT NULL CHECK (status IN ('uploaded','queued','recognizing','review','confirmed','failed','returned')),
+    doc_date TEXT, doc_no TEXT, subtotal REAL, tax REAL, total REAL, total_handwritten INTEGER NOT NULL DEFAULT 0,
+    handwritten_note TEXT, flags TEXT NOT NULL DEFAULT '[]', uploaded_at TEXT NOT NULL, confirmed_at TEXT, confirmed_by TEXT,
+    ai_raw TEXT, ai_model TEXT, ai_seconds REAL, attempts INTEGER NOT NULL DEFAULT 0, error TEXT, return_reason TEXT);
+  CREATE INDEX idx_slips_brand_status ON slips(brand_id, status);
+  CREATE INDEX idx_slips_store ON slips(store_id, uploaded_at);
+  CREATE INDEX idx_slips_status ON slips(status, uploaded_at);
+  CREATE TABLE slip_photos (slip_id TEXT NOT NULL REFERENCES slips(id), seq INTEGER NOT NULL, path TEXT NOT NULL, sha256 TEXT, PRIMARY KEY (slip_id, seq));
+  CREATE TABLE slip_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, slip_id TEXT NOT NULL REFERENCES slips(id), seq INTEGER NOT NULL, raw_name TEXT NOT NULL DEFAULT '',
+    item_id INTEGER, qty REAL, unit TEXT, unit_price REAL, amount REAL, flags TEXT NOT NULL DEFAULT '[]',
+    checked INTEGER NOT NULL DEFAULT 0, edited_by_human INTEGER NOT NULL DEFAULT 0);
+  CREATE INDEX idx_lines_slip ON slip_lines(slip_id, seq);
+  CREATE TABLE price_alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, line_id INTEGER, item_id INTEGER, vendor_id INTEGER, store_id INTEGER,
+    prev_price REAL, new_price REAL, pct REAL, direction TEXT CHECK (direction IN ('up','down')), created_at TEXT, notified_at TEXT);
+  CREATE TABLE audit (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, who TEXT NOT NULL, action TEXT NOT NULL, slip_id TEXT, before TEXT, after TEXT);
+  CREATE TABLE jobs_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, job TEXT NOT NULL, ok INTEGER NOT NULL, detail TEXT);
+  `
+];
+
+function openDb(dataDir) {
+  let file = ':memory:';
+  if (dataDir !== ':memory:') {
+    fs.mkdirSync(dataDir, { recursive: true });
+    file = path.join(dataDir, 'purchase.db');
+  }
+  const db = new DatabaseSync(file);
+  db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
+  if (file !== ':memory:') db.exec('PRAGMA journal_mode = WAL;');
+  let ver = db.prepare('PRAGMA user_version').get().user_version;
+  while (ver < MIGRATIONS.length) {
+    db.exec('BEGIN');
+    try {
+      db.exec(MIGRATIONS[ver]);
+      db.exec(`PRAGMA user_version = ${ver + 1}`);
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+    ver++;
+  }
+  let depth = 0;
+  db.tx = (fn) => {                                   // 交易（可巢狀：內層直接沿用外層）
+    if (depth > 0) return fn();
+    db.exec('BEGIN IMMEDIATE'); depth++;
+    try { const r = fn(); db.exec('COMMIT'); return r; }
+    catch (e) { try { db.exec('ROLLBACK'); } catch (e2) { /* ignore */ } throw e; }
+    finally { depth--; }
+  };
+  return db;
+}
+
+const nowIso = () => new Date().toISOString();
+function audit(db, who, action, slipId, before, after) {
+  db.prepare('INSERT INTO audit (at, who, action, slip_id, before, after) VALUES (?,?,?,?,?,?)')
+    .run(nowIso(), who, action, slipId || null, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after));
+}
+function jobLog(db, job, ok, detail) {
+  db.prepare('INSERT INTO jobs_log (at, job, ok, detail) VALUES (?,?,?,?)').run(nowIso(), job, ok ? 1 : 0, String(detail || '').slice(0, 2000));
+}
+module.exports = { openDb, audit, jobLog, nowIso, SCHEMA_VERSION: MIGRATIONS.length };
