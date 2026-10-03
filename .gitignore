@@ -1,0 +1,8 @@
+# 真實資料、樣本、金鑰一律不進 public repo
+spike/
+docs/
+data/
+.env
+node_modules/
+*.db
+.DS_Store
