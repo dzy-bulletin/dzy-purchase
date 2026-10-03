@@ -52,7 +52,15 @@ const MIGRATIONS = [
   // v3（P2）：品名表可停用、報表與提醒用的索引
   `ALTER TABLE items ADD COLUMN active INTEGER NOT NULL DEFAULT 1;
    CREATE INDEX idx_lines_item ON slip_lines(item_id);
-   CREATE INDEX idx_alerts_line ON price_alerts(line_id);`
+   CREATE INDEX idx_alerts_line ON price_alerts(line_id);`,
+  // v4（P3）：損益科目對照、損益推送 outbox（同店同月合併一筆；ver 用來判斷「送出期間又被改過」）、曾推過的科目（歸 0 要送）
+  `CREATE TABLE pnl_map (
+     brand_id TEXT NOT NULL REFERENCES brands(id), vendor_id INTEGER NOT NULL REFERENCES vendors(id), category TEXT NOT NULL, acc_id TEXT NOT NULL,
+     PRIMARY KEY (vendor_id, category));
+   CREATE TABLE pnl_outbox (
+     store_id INTEGER NOT NULL, month TEXT NOT NULL, dirty_at TEXT NOT NULL, ver INTEGER NOT NULL DEFAULT 1,
+     attempts INTEGER NOT NULL DEFAULT 0, next_at TEXT, first_fail_at TEXT, last_error TEXT, PRIMARY KEY (store_id, month));
+   CREATE TABLE pnl_pushed (store_id INTEGER NOT NULL, month TEXT NOT NULL, acc_id TEXT NOT NULL, PRIMARY KEY (store_id, month, acc_id));`
 ];
 
 function openDb(dataDir) {

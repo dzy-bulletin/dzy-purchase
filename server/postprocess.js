@@ -5,7 +5,8 @@ const RED = new Set(['AMOUNT_MISMATCH', 'SUM_MISMATCH', 'PRICE_MISSING']);
 const STICKY_LINE = ['AMOUNT_FIXED'];            // 歷史事實型旗標：重算時保留（人工改過該欄位則去掉）
 const STICKY_SLIP = ['DATE_FIXED'];   // HANDWRITTEN 不 sticky：依 handwritten_note 是否有內容重算
 
-const { round2, near, sumCheck } = require('../web/js/rules');   // 前後端共用同一份總額規則
+const { round2, near, sumCheck } = require('../web/js/rules');
+const { normText } = require('./slips-common');   // 前後端共用同一份總額規則
 const sortFlags = (set) => FLAG_ORDER.filter((f) => set.has(f));
 const hasRed = (flags) => flags.some((f) => RED.has(f));
 
@@ -123,7 +124,7 @@ function postprocess(ai, shotDate, ctx) {
       else if (!near(calc, amt) && amt > 0 && calc > amt && Number.isInteger(amt)
                && String(Math.round(calc)).startsWith(String(amt))) { amt = calc; flags.push('AMOUNT_FIXED'); }   // 漏零
     }
-    return { seq: i + 1, raw_name: String(x.name == null ? '' : x.name).replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim(), item_id: null, qty, unit: String(x.unit == null ? '' : x.unit).replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim(),
+    return { seq: i + 1, raw_name: normText(x.name, 200), item_id: null, qty, unit: normText(x.unit, 20),
              unit_price: price, amount: amt, flags, checked: 0, edited_by_human: 0 };
   });
   const r = evaluate(slip, lines, ctx);

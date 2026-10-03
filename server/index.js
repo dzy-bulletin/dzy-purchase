@@ -12,7 +12,8 @@ const { ApiError, sendJson, readBody, parseMultipart } = require('./http-util');
 const { evaluate, parseNum, parseManualDate, hasRed } = require('./postprocess');
 const calc = require('./calc');
 const { createWorker } = require('./worker');
-const { photoFile, matchVendor, makeCtx } = require('./slips-common');
+const { createPnlPush } = require('./pnl-push');
+const { photoFile, matchVendor, makeCtx, normText } = require('./slips-common');
 
 const PREFIX = '/purchase/api';
 const STATUSES = ['uploaded', 'queued', 'recognizing', 'review', 'confirmed', 'failed', 'returned'];
@@ -25,6 +26,7 @@ function makeApp(cfg, opts) {
   const now = opts.now || (() => new Date());
   const db = opts.db || openDb(cfg.DATA_DIR);
   const worker = createWorker({ db, cfg, recognize: opts.recognize, log: opts.log });
+  const pnlPush = createPnlPush({ db, cfg, now, fetchImpl: opts.fetchImpl, log: opts.log });
 
   // ---------- 小工具 ----------
   const taipeiDate = () => new Date(now().getTime() + 8 * 3600e3).toISOString().slice(0, 10);
@@ -110,14 +112,6 @@ function makeApp(cfg, opts) {
   const routes = [];
   const route = (method, re, roles, fn) => routes.push({ method, re, roles, fn });
 
-  route('GET', /^\/health$/, null, async () => {
-    let ollama = false;
-    try { const r = await fetch(cfg.OLLAMA_URL + '/api/tags', { signal: AbortSignal.timeout(1500) }); ollama = r.ok; } catch (e) { /* 沒開 */ }
-    const q = db.prepare("SELECT status, COUNT(*) c FROM slips WHERE status IN ('queued','recognizing') GROUP BY status").all();
-    const queue = { queued: 0, recognizing: 0 }; q.forEach((r) => { queue[r.status] = r.c; });
-    return { server: true, ollama, model: cfg.MODEL, queue, time: isoNow() };
-  });
-
   route('POST', /^\/login$/, null, async ({ req }) => {
     const raw = await readBody(req, 64 * 1024);
     const b = parseJson(raw);
@@ -130,7 +124,7 @@ function makeApp(cfg, opts) {
   route('GET', /^\/vendors$/, ['store', 'accountant', 'admin'], async ({ p, url }) => {
     const all = url.searchParams.get('all') === '1';
     const givenBrand = url.searchParams.get('brand_id');
-    if (all && p.role === 'accountant' && givenBrand && givenBrand !== p.brand_id) throw new ApiError('FORBIDDEN', '不能操作其他品牌的資料');
+    if (p.role === 'accountant' && givenBrand && givenBrand !== p.brand_id) throw new ApiError('FORBIDDEN', '不能操作其他品牌的資料');
     if (all && p.role === 'store') throw new ApiError('FORBIDDEN', '這個帳號沒有權限做這件事');
     const act = all ? '' : ' AND active = 1';
     let rows;
@@ -284,7 +278,7 @@ function makeApp(cfg, opts) {
             if (seenIds.has(Number(l.id))) throw new ApiError('BAD_INPUT', `明細列 ${l.id} 重複出現`);
             seenIds.add(Number(l.id));
           }
-          const nl = { raw_name: String(l.raw_name == null ? '' : l.raw_name).replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim().slice(0, 200), unit: String(l.unit == null ? '' : l.unit).replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim().slice(0, 20),
+          const nl = { raw_name: normText(l.raw_name, 200), unit: normText(l.unit, 20),
             qty: num(l.qty, `第 ${i + 1} 列數量`, 'pos'), unit_price: num(l.unit_price, `第 ${i + 1} 列單價`, 'pos'), amount: num(l.amount, `第 ${i + 1} 列金額`, 'pos'), item_id: null };
           if (l.item_id) {
             const it = db.prepare('SELECT id, active FROM items WHERE id = ? AND brand_id = ?').get(Number(l.item_id), s.brand_id);
@@ -336,10 +330,11 @@ function makeApp(cfg, opts) {
     // 廠商記憶：有對到統一品名的列，記下「廠商＋原始寫法 → 品名」；再算價格變動提醒（先清掉舊的，避免重複）
     if (cur.vendor_id) {
       const up = db.prepare('INSERT OR REPLACE INTO item_aliases (vendor_id, raw_name, item_id) VALUES (?,?,?)');
-      for (const l of r.lines) { const rn = String(l.raw_name || '').trim(); if (l.item_id && rn) up.run(cur.vendor_id, rn, l.item_id); }
+      for (const l of r.lines) { const rn = normText(l.raw_name, 200); if (l.item_id && rn) up.run(cur.vendor_id, rn, l.item_id); }
     }
     calc.clearPriceAlerts(db, s.id);
     calc.generatePriceAlerts(db, s.id, isoNow());
+    pnlPush.markDirty(cur.store_id, cur.doc_date, isoNow());          // 損益推送：入帳 → 該店該月重推
     audit(db, A.whoOf(p), 'confirm', s.id, before, snapshot(slipRow(s.id)));
     return detail(slipRow(s.id));
   }));
@@ -353,6 +348,7 @@ function makeApp(cfg, opts) {
       if (!reason) throw new ApiError('BAD_INPUT', '取消入帳必須寫原因');
       const before = snapshot(s);
       calc.clearPriceAlerts(db, s.id);                                   // 取消入帳 → 撤銷這張產生的價格提醒
+      pnlPush.markDirty(s.store_id, s.doc_date, isoNow());               // 損益推送：取消入帳 → 該店該月重推（該科目可能變 0）
       db.prepare("UPDATE slips SET status='review', confirmed_at=NULL, confirmed_by=NULL WHERE id=?").run(s.id);
       audit(db, A.whoOf(p), 'unconfirm', s.id, before, Object.assign(snapshot(slipRow(s.id)), { reason }));
       return detail(slipRow(s.id));
@@ -404,9 +400,12 @@ function makeApp(cfg, opts) {
   }
 
   // ---------- P2：管理、基本資料、報表 ----------
-  const rctx = { route, db, A, now, readBody, parseJson, RAW, corsHeaders };
+  const rctx = { route, db, A, now, readBody, parseJson, RAW, corsHeaders, cfg, pnlPush, sendJson };
   require('./master')(rctx);
   require('./reports')(rctx);
+  // ---------- P3：損益對照、健康檢查 ----------
+  require('./pnl-map')(rctx);
+  require('./health')(rctx);
 
   // ---------- 派送 ----------
   async function handle(req, res) {
@@ -439,9 +438,9 @@ function makeApp(cfg, opts) {
   const server = http.createServer((req, res) => { handle(req, res); });
   server.requestTimeout = 120000;
   return {
-    server, db, worker, cfg,
-    listen(port, host) { return new Promise((r) => server.listen(port === undefined ? cfg.PORT : port, host || cfg.BIND, () => { if (cfg.WORKER) worker.start(); r(server.address()); })); },
-    close() { return worker.stop().then(() => new Promise((r) => server.close(() => { try { db.close(); } catch (e) { /* ignore */ } r(); }))); }
+    server, db, worker, cfg, pnlPush,
+    listen(port, host) { return new Promise((r) => server.listen(port === undefined ? cfg.PORT : port, host || cfg.BIND, () => { if (cfg.WORKER) { worker.start(); pnlPush.start(); } r(server.address()); })); },
+    close() { pnlPush.stop(); return worker.stop().then(() => new Promise((r) => server.close(() => { try { db.close(); } catch (e) { /* ignore */ } r(); }))); }
   };
 }
 

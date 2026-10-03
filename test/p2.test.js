@@ -132,7 +132,7 @@ test('管理：門市／帳號新增修改；停用門市無法登入；X 品牌
     assert.ok(k.accX, 'seed 有 acc-x'); assert.ok(await t.login('X01', PASS.SEED_PASS_X01), 'seed 有 X01');
     const list = await t.call('GET', '/admin/stores', { token: k.admin });
     assert.deepStrictEqual(list.data.map((s) => s.code), ['C01', 'M01', 'X01']);
-    assert.deepStrictEqual(Object.keys(list.data[0]).sort(), ['active', 'brand_id', 'code', 'id', 'name']);
+    assert.deepStrictEqual(Object.keys(list.data[0]).sort(), ['active', 'brand_id', 'code', 'id', 'name', 'pnl_unit_code']);
     // 新增、代號字首要與品牌一致、重複代號 CONFLICT、密碼太短
     let r = await t.call('POST', '/admin/stores', { token: k.admin, body: { code: 'C02', name: '央廚二（測試）', brand_id: 'C', password: 'pw-c02x' } });
     assert.strictEqual(r.ok, true); const c02 = r.data.id;

@@ -2,6 +2,14 @@
 // 貨單共用小函式：照片檔路徑、廠商比對、品名／單位解析（給 postprocess 的 ctx）
 const path = require('path');
 
+// 共用文字正規化（#18）：控制字元→空白→trim→截長度。PUT 明細、辨識後處理、廠商記憶 alias、單位換算、品名建議全部走這一支，
+// 才不會「存的」和「查的」差一個 tab 或差一個長度上限而對不上。
+const CTRL_RE = /[\u0000-\u001f\u007f-\u009f]/g;
+function normText(s, max) {
+  const t = String(s == null ? '' : s).replace(CTRL_RE, ' ').trim();
+  return max > 0 ? t.slice(0, max) : t;
+}
+
 // DB 裡的照片路徑照契約 data/photos/YYYYMM/<id>_<seq>.jpg；實際檔案在 DATA_DIR/photos/...
 function photoFile(cfg, dbPath) { return path.join(cfg.DATA_DIR, dbPath.replace(/^data\//, '')); }
 
@@ -31,11 +39,11 @@ function makeCtx(db, brandId, vendorId, useAlias) {
         if (it) return it;
       }
       if (useAlias && vendorId && line.raw_name) {
-        return db.prepare('SELECT i.id, i.base_unit FROM item_aliases a JOIN items i ON i.id = a.item_id WHERE a.vendor_id = ? AND a.raw_name = ? AND i.brand_id = ? AND i.active = 1').get(vendorId, String(line.raw_name).trim(), brandId) || null;
+        return db.prepare('SELECT i.id, i.base_unit FROM item_aliases a JOIN items i ON i.id = a.item_id WHERE a.vendor_id = ? AND a.raw_name = ? AND i.brand_id = ? AND i.active = 1').get(vendorId, normText(line.raw_name, 200), brandId) || null;
       }
       return null;
     },
     hasConv(itemId, unit) { return !!db.prepare('SELECT 1 FROM unit_conv WHERE item_id = ? AND unit = ?').get(itemId, unit); }
   };
 }
-module.exports = { photoFile, matchVendor, makeCtx };
+module.exports = { normText, photoFile, matchVendor, makeCtx };

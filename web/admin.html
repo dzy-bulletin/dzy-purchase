@@ -43,7 +43,7 @@ Common.gate({
   loginHint: '會計與管理員登入', accLabel: '帳號',
   onReady: function (s) {
     SESSION = s;
-    var tabs = [['items', '品項'], ['vendors', '廠商']];
+    var tabs = [['items', '品項'], ['vendors', '廠商'], ['pnl', '損益對照']];
     if (s.role === 'admin') tabs.push(['stores', '門市'], ['users', '帳號']);
     $('tabs').innerHTML = tabs.map(function (t) { return '<button type="button" role="tab" data-t="' + t[0] + '">' + t[1] + '</button>'; }).join('');
     Array.prototype.forEach.call($('tabs').querySelectorAll('button'), function (b) { b.onclick = function () { go(b.dataset.t); }; });
@@ -54,7 +54,7 @@ Common.gate({
 function go(t) {
   TAB = t; location.hash = t; $('panel').innerHTML = ''; $('msg').innerHTML = '';
   Array.prototype.forEach.call($('tabs').querySelectorAll('button'), function (b) { var on = b.dataset.t === t; b.className = on ? 'on' : ''; b.setAttribute('aria-selected', on); });
-  ({ items: viewItems, vendors: viewVendors, stores: viewStores, users: viewUsers })[t]();
+  ({ items: viewItems, vendors: viewVendors, pnl: viewPnl, stores: viewStores, users: viewUsers })[t]();
 }
 function msg(t, cls) { Common.showMsg('msg', t, cls); }
 
@@ -160,14 +160,42 @@ async function viewVendors() {
   Array.prototype.forEach.call($('body').querySelectorAll('[data-e]'), function (b) { b.onclick = function () { edit(list.filter(function (x) { return String(x.id) === b.dataset.e; })[0]); }; });
 }
 
+/* ---------- 損益對照（會計本品牌／admin 當前品牌） ---------- */
+async function viewPnl() {
+  var d, vendors;
+  try { d = await Common.get('/pnl-map'); vendors = await Common.get('/vendors', { all: 1 }); } catch (e) { $('body').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; return; }
+  var cats = d.categories || CATS, cur = {};
+  d.entries.forEach(function (x) { cur[x.vendor_id + '|' + x.category] = x.acc_id; });
+  $('body').innerHTML = '<div class="card"><h2>廠商 × 類別 → 損益科目代號</h2>' +
+    '<p class="muted">已入帳的進貨依「這張貨單的廠商」和「品項的類別」找科目代號，推到損益系統。品項沒對到統一品名、或這裡沒填的，不會推，會列在下方「待補對照」。科目代號手打（例如損益系統的食材科目代號），空白＝不對照。</p>' +
+    '<div class="tblwrap"><table><thead><tr><th>廠商</th>' + cats.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+    (vendors.length ? vendors.map(function (v) {
+      return '<tr class="' + (isOff(v.active) ? 'off' : '') + '"><td>' + esc(v.name) + (isOff(v.active) ? ' <span class="muted">（停用）</span>' : '') + '</td>' + cats.map(function (c) {
+        return '<td><input data-v="' + v.id + '" data-c="' + esc(c) + '" value="' + esc(cur[v.id + '|' + c] || '') + '" aria-label="' + esc(v.name + ' ' + c + ' 科目代號') + '" style="min-width:90px"></td>';
+      }).join('') + '</tr>';
+    }).join('') : '<tr><td colspan="' + (cats.length + 1) + '" class="muted">還沒有廠商</td></tr>') + '</tbody></table></div>' +
+    '<div id="pmsg"></div><div class="row" style="margin-top:1rem"><button id="pnlSave" type="button" class="primary">儲存對照</button></div></div>' +
+    '<div class="card" style="margin-top:1rem"><h2>待補對照</h2>' +
+    (d.unmapped.length ? '<p class="muted">已入帳、但沒有對照科目的金額（含稅額分攤），合計 <b>' + fmt(d.unmapped_total) + '</b>。只列有設定損益門市代號的門市。</p>' +
+      '<div class="tblwrap"><table><thead><tr><th>門市</th><th>月份</th><th>廠商</th><th>類別</th><th class="n">金額</th></tr></thead><tbody>' +
+      d.unmapped.map(function (r) { return '<tr><td>' + esc(r.store_name) + '</td><td>' + esc(r.month) + '</td><td>' + esc(r.vendor) + '</td><td>' + esc(r.category) + (r.category === '未分類' ? ' <span class="muted">（品項還沒對到統一品名）</span>' : '') + '</td><td class="n">' + fmt(r.amount) + '</td></tr>'; }).join('') + '</tbody></table></div>'
+      : '<p class="muted">沒有待補對照的金額。</p>') + '</div>';
+  $('pnlSave').onclick = async function () {
+    var out = [];
+    Array.prototype.forEach.call($('body').querySelectorAll('input[data-v]'), function (el) { var a = el.value.trim(); if (a) out.push({ vendor_id: +el.dataset.v, category: el.dataset.c, acc_id: a }); });
+    try { var r = await Common.send('PUT', '/pnl-map', { entries: out }); go('pnl'); msg('損益對照已儲存（' + r.entries.length + ' 筆；' + r.requeued + ' 個店×月已排入重推）', 'ok'); }
+    catch (e) { $('pmsg').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; }
+  };
+}
+
 /* ---------- 門市（admin） ---------- */
 async function viewStores() {
   var list; try { list = await API.call('/admin/stores'); } catch (e) { $('body').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; return; }
-  $('body').innerHTML = '<div class="tools"><button id="add" type="button" class="primary">＋ 新增門市</button></div><div class="tblwrap"><table><thead><tr><th>代號</th><th>名稱</th><th>品牌</th><th>狀態</th><th></th></tr></thead><tbody>' +
-    list.map(function (s) { return '<tr class="' + (isOff(s.active) ? 'off' : '') + '"><td>' + esc(s.code) + '</td><td>' + esc(s.name) + '</td><td>' + esc(BRAND_NAME[s.brand_id] || s.brand_id) + '</td><td>' + stateCell(s.active) + '</td><td class="n"><button class="sm" type="button" data-e="' + s.id + '">編輯</button></td></tr>'; }).join('') + '</tbody></table></div>';
+  $('body').innerHTML = '<div class="tools"><button id="add" type="button" class="primary">＋ 新增門市</button></div><div class="tblwrap"><table><thead><tr><th>代號</th><th>名稱</th><th>品牌</th><th>損益門市代號</th><th>狀態</th><th></th></tr></thead><tbody>' +
+    list.map(function (s) { return '<tr class="' + (isOff(s.active) ? 'off' : '') + '"><td>' + esc(s.code) + '</td><td>' + esc(s.name) + '</td><td>' + esc(BRAND_NAME[s.brand_id] || s.brand_id) + '</td><td>' + (s.pnl_unit_code ? esc(s.pnl_unit_code) : '<span class="muted">未設定（不推損益）</span>') + '</td><td>' + stateCell(s.active) + '</td><td class="n"><button class="sm" type="button" data-e="' + s.id + '">編輯</button></td></tr>'; }).join('') + '</tbody></table></div>';
   function edit(s) {
     openForm({ title: s ? '編輯門市' : '新增門市', value: s || { active: 1, brand_id: 'X' },
-      fields: [{ k: 'code', label: '門市代號（X01／M03／C01）' }, { k: 'name', label: '門市名稱' }, { k: 'brand_id', label: '品牌', type: 'select', options: BRAND_OPTS }, { k: 'active', label: '啟用', type: 'check', def: 1 }, { k: 'password', label: '密碼', type: 'password', ph: s ? '留空＝不修改' : '' }],
+      fields: [{ k: 'code', label: '門市代號（X01／M03／C01）' }, { k: 'name', label: '門市名稱' }, { k: 'brand_id', label: '品牌', type: 'select', options: BRAND_OPTS }, { k: 'pnl_unit_code', label: '損益系統門市代號（空白＝不推損益）' }, { k: 'active', label: '啟用', type: 'check', def: 1 }, { k: 'password', label: '密碼', type: 'password', ph: s ? '留空＝不修改' : '' }],
       onSave: function (o) {
         o.code = o.code.toUpperCase();
         if (!/^[XMC]\d{2}$/.test(o.code)) throw new Error('門市代號格式：品牌字首（X／M／C）加 2 位數字');

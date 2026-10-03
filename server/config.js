@@ -32,6 +32,14 @@ function loadConfig(envIn) {
     RETRY_DELAY_MS: env.RETRY_DELAY_MS !== undefined ? Number(env.RETRY_DELAY_MS) : 5000,
     WORKER: env.WORKER !== '0',                       // 測試用：0＝不自動啟動工人
     EXTRA_ORIGINS: (env.ALLOW_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean),
+    LOG_DIR: env.LOG_DIR ? path.resolve(env.LOG_DIR.replace(/^~/, env.HOME || '')) : path.join(ROOT, 'logs'),
+    PNL_PUSH_URL: env.PNL_PUSH_URL || '',
+    PNL_PURCHASE_KEY: env.PNL_PURCHASE_KEY || '',
+    PNL_TICK_MS: num(env.PNL_TICK_MS, 60000),                 // outbox 處理間隔（契約：60 秒）
+    PNL_TIMEOUT_MS: num(env.PNL_TIMEOUT_MS, 60000),
+    BACKUP_URL: env.BACKUP_URL || '',
+    BACKUP_KEY: env.BACKUP_KEY || '',
+    BACKUP_TIMEOUT_MS: num(env.BACKUP_TIMEOUT_MS, 90000),
     MAX_PHOTO_BYTES: 8 * 1024 * 1024,
     MAX_PHOTOS: 6,
     LOCK_AFTER: 5,

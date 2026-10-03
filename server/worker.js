@@ -6,7 +6,7 @@ const path = require('path');
 const { execFile } = require('child_process');
 const { audit, jobLog, nowIso } = require('./db');
 const { postprocess } = require('./postprocess');
-const { makeCtx, matchVendor, photoFile } = require('./slips-common');
+const { makeCtx, matchVendor, photoFile, normText } = require('./slips-common');
 
 // 提示詞照 spike 第 2 輪驗證過的版本
 const PROMPT = `這是一張台灣餐廳收到的廠商貨單（出貨單／銷貨單／估價單／對帳單）照片。
@@ -18,7 +18,8 @@ const PROMPT = `這是一張台灣餐廳收到的廠商貨單（出貨單／銷�
 // 沒有廠商或沒有歷史 → 原樣回傳基本提示詞。
 const EXAMPLE_SLIPS = 3, EXAMPLE_LINES = 15;
 // 廠商記憶進提示詞前先清洗：去控制字元／換行、移除反引號與大括號、截 40 字（防持久性提示詞注入）
-const cleanMemo = (s) => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029`{}]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
+const cleanMemo = (s) => normText(s).replace(/[\u200b-\u200f\u2060\ufeff]/g, '')   // 零寬字元直接拿掉
+  .replace(/[\u2028\u2029`{}｛｝｀｜‖]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);   // 全形大括號／反引號／欄位分隔符換空白（#13）
 const numOrBlank = (x) => (x == null || !Number.isFinite(Number(x)) ? '' : Number(x));
 function buildPrompt(db, brandId, vendorId) {
   if (!vendorId) return PROMPT;

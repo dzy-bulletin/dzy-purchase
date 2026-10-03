@@ -4,6 +4,8 @@ const { ApiError } = require('./http-util');
 const { hashPassword } = require('./auth');
 const { audit } = require('./db');
 const { CATEGORIES } = require('./calc');
+const { normText } = require('./slips-common');
+const P = require('./pnl-push');
 
 const STORE_CODE = /^[XMC]\d{2}$/;
 const MIN_PW = 6;
@@ -56,7 +58,9 @@ module.exports = function register(ctx) {
     return rows.map(storeOut);
   });
   const storeOut = (r) => ({ id: r.id, code: r.code, name: r.name, brand_id: r.brand_id, active: r.active ? 1 : 0 });
-  route('GET', /^\/admin\/stores$/, ['admin'], async () => db.prepare('SELECT * FROM stores ORDER BY code').all().map(storeOut));
+  const adminStoreOut = (r) => Object.assign(storeOut(r), { pnl_unit_code: r.pnl_unit_code || '' });   // 損益代號只給管理頁
+  const unitCode = (v) => { const t = normText(v, 41); if (t.length > 40 || /\s/.test(t)) throw new ApiError('BAD_INPUT', '損益門市代號不可含空白、最長 40 字'); return t || null; };
+  route('GET', /^\/admin\/stores$/, ['admin'], async () => db.prepare('SELECT * FROM stores ORDER BY code').all().map(adminStoreOut));
   route('POST', /^\/admin\/stores$/, ['admin'], async ({ req, p }) => {
     const b = await body(req);
     const code = String(b.code || '').trim().toUpperCase();
@@ -66,11 +70,11 @@ module.exports = function register(ctx) {
     if (db.prepare('SELECT 1 FROM stores WHERE code = ?').get(code)) throw new ApiError('CONFLICT', '這個門市代號已存在');
     const pw = password(b.password);
     return db.tx(() => {
-      const id = db.prepare('INSERT INTO stores (brand_id, code, name, pass_hash, active) VALUES (?,?,?,?,?)')
-        .run(b.brand_id, code, text(b.name, '門市名稱'), hashPassword(pw), bool(b.active, 1)).lastInsertRowid;
+      const id = db.prepare('INSERT INTO stores (brand_id, code, name, pass_hash, active, pnl_unit_code) VALUES (?,?,?,?,?,?)')
+        .run(b.brand_id, code, text(b.name, '門市名稱'), hashPassword(pw), bool(b.active, 1), b.pnl_unit_code === undefined ? null : unitCode(b.pnl_unit_code)).lastInsertRowid;
       const row = db.prepare('SELECT * FROM stores WHERE id = ?').get(Number(id));
-      audit(db, who(p), 'admin_store_create', null, null, storeOut(row));
-      return storeOut(row);
+      audit(db, who(p), 'admin_store_create', null, null, adminStoreOut(row));
+      return adminStoreOut(row);
     });
   });
   route('PUT', /^\/admin\/stores\/(\d+)$/, ['admin'], async ({ req, p, m }) => {
@@ -91,13 +95,21 @@ module.exports = function register(ctx) {
         if (db.prepare('SELECT 1 FROM slips WHERE store_id = ? LIMIT 1').get(s.id)) throw new ApiError('CONFLICT', '這間門市已有貨單，不能改代號或品牌');
         set.code = code; set.brand_id = brand;
       }
+      if (b.pnl_unit_code !== undefined) {
+        const uc = unitCode(b.pnl_unit_code);
+        if ((s.pnl_unit_code || null) !== uc) {
+          set.pnl_unit_code = uc;
+          db.prepare('DELETE FROM pnl_pushed WHERE store_id = ?').run(s.id);          // 換了損益端的代號 → 「曾推過的科目」重新來過
+          P.markAllForStore(db, s.id, new Date().toISOString());                       // 設定／更換代號 → 該店所有有入帳的月份推一次
+        }
+      }
       if (b.password !== undefined) { set.pass_hash = hashPassword(password(b.password)); set.fail_count = 0; set.locked_until = null; }
       const cols = Object.keys(set);
       if (cols.length) db.prepare(`UPDATE stores SET ${cols.map((c) => c + ' = ?').join(', ')} WHERE id = ?`).run(...cols.map((c) => set[c]), s.id);
       if (b.password !== undefined || set.active === 0) dropSessions('store', s.id);
       const row = db.prepare('SELECT * FROM stores WHERE id = ?').get(s.id);
-      audit(db, who(p), 'admin_store_update', null, storeOut(s), Object.assign(storeOut(row), b.password !== undefined ? { password_changed: true } : {}));
-      return storeOut(row);
+      audit(db, who(p), 'admin_store_update', null, adminStoreOut(s), Object.assign(adminStoreOut(row), b.password !== undefined ? { password_changed: true } : {}));
+      return adminStoreOut(row);
     });
   });
 
@@ -231,6 +243,7 @@ module.exports = function register(ctx) {
       const cols = Object.keys(set);
       if (cols.length) db.prepare(`UPDATE items SET ${cols.map((c) => c + ' = ?').join(', ')} WHERE id = ?`).run(...cols.map((c) => set[c]), it.id);
       const row = db.prepare('SELECT * FROM items WHERE id = ?').get(it.id);
+      if (set.category && set.category !== it.category) P.markForItem(db, it.id, new Date().toISOString());   // 類別變了 → 對到的損益科目可能不同，含此品項的店×月重推
       audit(db, who(p), 'item_update', null, itemOut(it), itemOut(row));
       return itemOut(row);
     });
@@ -251,7 +264,7 @@ module.exports = function register(ctx) {
       const seen = new Set();
       const rows = arr.map((x) => {
         if (!x || typeof x !== 'object') throw new ApiError('BAD_INPUT', '換算格式錯誤');
-        const unit = String(x.unit == null ? '' : x.unit).trim().slice(0, 20);
+        const unit = normText(x.unit, 20);
         const factor = typeof x.factor === 'string' && x.factor.trim() !== '' ? Number(x.factor) : x.factor;
         if (!unit) throw new ApiError('BAD_INPUT', '單位不可空白');
         if (unit === it.base_unit) throw new ApiError('BAD_INPUT', `「${unit}」就是統一單位，不用設定換算`);
@@ -283,7 +296,7 @@ module.exports = function register(ctx) {
     return s;
   }
   route('GET', /^\/items\/suggest$/, ['accountant', 'admin'], async ({ p, url }) => {
-    const raw = String(url.searchParams.get('raw') || '').trim();
+    const raw = normText(url.searchParams.get('raw'), 200);
     const vid = url.searchParams.get('vendor_id');
     let brand = null, vendorId = null;
     if (vid) {

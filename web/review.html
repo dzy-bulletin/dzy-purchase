@@ -21,7 +21,7 @@
   .side .item.sel{background:var(--surface);border-left:4px solid var(--accent);padding-left:calc(1.1rem - 4px)}
   .dot{width:7px;height:7px;border-radius:50%;background:var(--red);display:inline-block;flex:none}
   .work{flex:1;display:flex;min-width:0;min-height:0}
-  .photo{width:30%;min-width:240px;display:flex;flex-direction:column;border-right:1px solid var(--line);padding:1rem;gap:.6rem}
+  .photo{width:26%;min-width:240px;display:flex;flex-direction:column;border-right:1px solid var(--line);padding:1rem;gap:.6rem}
   .viewer{flex:1;overflow:hidden;position:relative;background:var(--surface);border:1px solid var(--line);cursor:grab;touch-action:none}
   .viewer.drag{cursor:grabbing}
   .viewer img{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;user-select:none;-webkit-user-drag:none}
@@ -37,13 +37,15 @@
   .actions{position:sticky;bottom:0;background:var(--bg);padding:.7rem 0;display:flex;gap:.6rem;flex-wrap:wrap;border-top:1px solid var(--line);align-items:center}
   .hand{background:var(--yellow-bg);color:var(--yellow);padding:.5rem .7rem;margin:.5rem 0;border:1px solid var(--yellow)}
   #lines td input{min-height:40px;padding:0 .45rem}
-  #lines td.num input{text-align:right;min-width:72px}
+  #lines td.num input{text-align:right;min-width:60px;width:100%}
+  #lines td.del{width:36px;padding-left:0;padding-right:.2rem}
+  #lines td.del button{min-width:32px;padding:0}
   #lines td.chk{width:44px;text-align:center}
   #lines td.chk input{width:22px;height:22px}
   #lines th.chk{text-align:center}
-  td input[data-k=unit]{min-width:56px}
-  td input[data-k=raw_name]{min-width:120px}
-  .pk{position:relative;min-width:170px}
+  td input[data-k=unit]{min-width:48px;width:100%}
+  td input[data-k=raw_name]{min-width:96px;width:100%}
+  .pk{position:relative;min-width:130px}
   .pk .sug{display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.25rem}
   .pk .sug button{min-height:32px;padding:0 .6rem;font-size:.8rem;border-style:dashed}
   .pk .dd{position:fixed;z-index:30;background:var(--surface);border:1px solid var(--ink);max-height:240px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.12)}
@@ -176,11 +178,11 @@ function buildRows() {
   var ro = cur.status === 'confirmed' || cur.status === 'returned', tb = $('tb');
   tb.innerHTML = cur.lines.map(function (l, i) {
     function inp(k, cls) { return '<td class="' + (cls || '') + '"><input data-i="' + i + '" data-k="' + k + '" ' + (cls === 'num' ? 'inputmode="decimal" ' : '') + 'value="' + esc(l[k] == null ? '' : l[k]) + '" ' + (ro ? 'disabled' : '') + ' aria-label="' + ({ qty: '數量', unit: '單位', unit_price: '單價', amount: '金額' }[k]) + '"></td>'; }
-    return '<tr id="r' + i + '"><td style="min-width:140px"><input data-i="' + i + '" data-k="raw_name" value="' + esc(l.raw_name || '') + '" ' + (ro ? 'disabled' : '') + ' aria-label="品名"><div class="why" data-why="' + i + '"></div></td>' +
+    return '<tr id="r' + i + '"><td style="min-width:100px"><input data-i="' + i + '" data-k="raw_name" value="' + esc(l.raw_name || '') + '" ' + (ro ? 'disabled' : '') + ' aria-label="品名"><div class="why" data-why="' + i + '"></div></td>' +
       '<td><div class="pk" data-pk="' + i + '"><input data-i="' + i + '" data-k="item" value="' + esc(itemName(l)) + '" placeholder="搜尋統一品名" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="dd' + i + '" ' + (ro ? 'disabled' : '') + ' aria-label="統一品名"><div class="dd hidden" role="listbox" id="dd' + i + '" aria-label="統一品名選項"></div><div class="sug"></div></div></td>' +
       inp('qty', 'num') + inp('unit') + inp('unit_price', 'num') + inp('amount', 'num') +
       '<td class="chk"><input type="checkbox" data-i="' + i + '" data-k="checked" ' + (l.checked ? 'checked' : '') + ' ' + (ro ? 'disabled' : '') + ' aria-label="已核對"></td>' +
-      '<td>' + (ro ? '' : '<button class="sm warn" type="button" data-del="' + i + '" aria-label="刪除這列">✕</button>') + '</td></tr>';
+      '<td class="del">' + (ro ? '' : '<button class="sm warn" type="button" data-del="' + i + '" aria-label="刪除這列">✕</button>') + '</td></tr>';
   }).join('');
   Array.prototype.forEach.call(tb.querySelectorAll('input[data-k]'), function (el) {
     var k = el.dataset.k; if (k === 'item') return;
@@ -283,12 +285,15 @@ function openNewItem(i, name) {
     '<label class="f" style="margin-top:.7rem">統一單位（例如 斤、包、箱）<input id="ni_unit"></label>' +
     '<div id="ni_msg"></div><div class="row" style="margin-top:1rem"><button id="ni_ok" type="button" class="primary">建立並選用</button><button id="ni_cancel" type="button">取消</button></div></div></div>';
   $('ni_name').focus();
-  $('ni_cancel').onclick = function () { $('ovHost').innerHTML = ''; };
+  function closeNew() { document.removeEventListener('keydown', onEsc); $('ovHost').innerHTML = ''; }
+  function onEsc(e) { if (e.key === 'Escape') { e.preventDefault(); closeNew(); } }       // #15：Escape＝取消
+  document.addEventListener('keydown', onEsc);
+  $('ni_cancel').onclick = closeNew;
   $('ni_ok').onclick = async function () {
     var n = $('ni_name').value.trim(), u = $('ni_unit').value.trim();
     if (!n || !u) { $('ni_msg').innerHTML = '<div class="msg err">請填品名與統一單位</div>'; return; }
     try { var it = await Common.send('POST', '/items', { name: n, category: $('ni_cat').value, base_unit: u, active: 1 });
-      $('ovHost').innerHTML = ''; selectItem(i, it); }
+      closeNew(); selectItem(i, it); }
     catch (e) { $('ni_msg').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; }
   };
 }
