@@ -29,6 +29,7 @@ Mac mini 部署手冊：`DEPLOY.md`（給 Mac mini 上的 Claude 逐步照做）
 - 工具：`server/tools/create-accounts.js`（建立正式門市／會計／admin，密碼只在終端機輸入）、`server/tools/ollama-bench.js`（用示範照片量辨識秒數，超過 300 秒改 7b）。
 - 門市代號：大寫英數 2–10 字（`CF`、`MDGF`、`MZTGF`、`MZTZS`、`MZTLZL`），不再綁品牌字首；登入時不分大小寫。品牌色與 logo 依登入後後端回傳的品牌決定。
 - 會計可管多個品牌（`user_brands`）：登入後 session 帶「目前品牌」，`POST /session/brand {brand_id}` 切換（不在清單內回 403），所有依品牌過濾的 API 都用目前品牌；多品牌會計的側欄上方有「目前品牌」切換，單品牌會計看不到。admin 管理頁帳號表單可勾多個品牌。
+- `PUT /admin/users/:id`：只給 `brand_id`＝只改預設品牌，**不會縮減**多品牌清單（`brand_id` 不在清單內回 BAD_INPUT）；給 `brand_ids` 才會整份覆蓋。`/health` 的 `model` 是 `.env` 的設定值，不代表 Ollama 已載入該模型（以 `ollama list` 為準）。
 - 前端 `web/js/config.js`：本機開頁預設連 `http://localhost:8794`；其他網址連部署的 Funnel 網址（倉庫存佔位字串，部署時依 DEPLOY.md 第 9 步取代，沒取代會顯示「尚未設定伺服器網址」）。`?api=` 覆寫只在本機開頁時生效。
 
 ## 部署順序（P3 損益推送）

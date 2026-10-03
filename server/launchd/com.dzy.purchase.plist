@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- 鼎兆元｜廠商貨單拍照建檔 — 伺服器本體（含辨識工人、損益推送、每日 04:10 補排；LaunchAgent，自動登入後啟動、當掉自動重起）。
+<!-- 鼎兆元｜廠商貨單拍照建檔 — 伺服器本體（含辨識工人、損益推送、每日 04:10 補排；當掉自動重起）。兩條安裝路線：路線 A＝LaunchAgent（~/Library/LaunchAgents，登入後啟動）；路線 D＝LaunchDaemon（/Library/LaunchDaemons，開機即啟動；安裝時用 plutil 在最外層加 UserName 以部署帳號身分執行）。
      範本：__NODE__＝node 絕對路徑（Node 24＋）、__REPO__＝repo 絕對路徑（~/dzy-purchase 展開後）、__DATA_DIR__＝資料夾（~/dzy-purchase-data 展開後）。
      金鑰不寫在這裡：PNL_PUSH_URL／PNL_PURCHASE_KEY／BACKUP_URL／BACKUP_KEY 放 __REPO__/server/.env。__DATA_DIR__/logs 要先建好（launchd 開不了 log 檔就不會啟動）。
      實際安裝步驟見 repo 根目錄 DEPLOY.md。 -->

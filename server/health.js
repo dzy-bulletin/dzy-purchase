@@ -73,7 +73,8 @@ module.exports = function register(ctx) {
     if (scope) { const r = P.unmappedReport(db, { brandId: scope }); unmapped_amount = r.total; inactive_amount = r.inactive_total; }
     else { const um = unmappedTotal(); unmapped_amount = um.total; inactive_amount = um.inactive; }
     const body = {
-      server: true, time: t.toISOString(), model: cfg.MODEL, ollama,
+      server: true, time: t.toISOString(), model: cfg.MODEL,   // 設定值（.env 的 MODEL），不代表 Ollama 已載入；以 ollama list 為準
+      ollama,
       queue: { waiting: q.c, oldest_min },
       backup: { last_ok_at: readBackupLast(cfg) },
       pnl: { configured: ps.configured, last_ok_at: ps.last_ok_at, pending: ps.pending, terminal: terminal.length },

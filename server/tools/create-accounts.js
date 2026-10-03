@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 // 正式帳號建立工具（P4／T23）：在 Mac mini 的「終端機」App 由 Eason 互動執行。
-//   node server/tools/create-accounts.js            建立／補齊：5 間門市、2 位會計（吳佳宜 C＋X、張淳 M）、1 位 admin
+//   node server/tools/create-accounts.js            建立／補齊：5 間門市、2 位會計（會計 A：央廚＋小辛辣；會計 B：墨竹亭）、1 位 admin；
+//   會計與 admin 的帳號、姓名一律由執行者當場輸入（程式與手冊不寫死任何真名）
 //   node server/tools/create-accounts.js --list     只列出目前狀態（不問密碼、不改任何東西）
 //   node server/tools/create-accounts.js --only stores|accountants|admin   只做其中一類
 // 密碼只在終端機輸入（不回顯、要輸入兩次），不寫檔、不印出、不進任何 log；Claude 不執行這支工具（密碼不經過 Claude）。
@@ -19,12 +20,12 @@ const STORES = [
   ['MZTZS', 'M', '墨竹亭新竹金山'],
   ['MZTLZL', 'M', '墨竹亭台北六張犁']
 ];
-// [預設帳號, 姓名, 品牌（第一個＝預設品牌）]
+// [角色代稱, 說明, 品牌（第一個＝預設品牌）]；帳號與姓名部署時輸入
 const ACCOUNTANTS = [
-  ['acc-wu', '吳佳宜', ['C', 'X']],
-  ['acc-zhang', '張淳', ['M']]
+  ['會計 A', '品牌：中央廚房＋小辛辣', ['C', 'X']],
+  ['會計 B', '品牌：墨竹亭', ['M']]
 ];
-const ADMIN = ['admin', '管理者'];
+const ADMIN = ['管理者', '系統管理者', []];
 const MIN_PW = 6;
 const USERNAME = /^[A-Za-z0-9._-]{3,40}$/;
 const WHO = 'tool:create-accounts';
@@ -51,11 +52,11 @@ async function run(db, io, opts) {
     io.out('門市：');
     for (const [code, brand, name] of STORES) { const r = db.prepare('SELECT active, pnl_unit_code FROM stores WHERE code = ?').get(code); io.out(`  ${code}\t${name}\t品牌 ${brand}\t${r ? (r.active ? '已建立' : '已停用') + (r.pnl_unit_code ? '' : '（未設損益代號）') : '尚未建立'}`); }
     io.out('帳號：');
-    for (const [u, name, brands] of ACCOUNTANTS.concat([[ADMIN[0], ADMIN[1], []]])) {
-      const r = db.prepare('SELECT id, role, active FROM users WHERE username = ?').get(u);
-      const bs = r ? db.prepare('SELECT brand_id FROM user_brands WHERE user_id = ? ORDER BY brand_id').all(r.id).map((x) => x.brand_id).join('＋') : '';
-      io.out(`  ${u}\t${name}\t${brands.length ? '品牌 ' + brands.join('＋') : '管理者'}\t${r ? (r.active ? '已建立' : '已停用') + (bs ? `（現有品牌 ${bs}）` : '') : '尚未建立'}`);
-    }
+    const users = db.prepare('SELECT id, username, role, active FROM users ORDER BY role, username').all();
+    const accs = users.filter((r) => r.role === 'accountant'); const adm = users.filter((r) => r.role === 'admin');
+    const bsOf = (r) => db.prepare('SELECT brand_id FROM user_brands WHERE user_id = ? ORDER BY brand_id').all(r.id).map((x) => x.brand_id).join('＋');
+    io.out(`  會計 ${accs.length} 位（期望 ${ACCOUNTANTS.length}）：` + (accs.map((r) => `${r.username}（品牌 ${bsOf(r)}${r.active ? '' : '，已停用'}）`).join('、') || '尚未建立'));
+    io.out(`  管理者 ${adm.length} 位（期望 1）：` + (adm.map((r) => r.username + (r.active ? '' : '（已停用）')).join('、') || '尚未建立'));
     return sum;
   }
 
@@ -63,6 +64,7 @@ async function run(db, io, opts) {
     io.out('\n== 門市');
     for (const [code, brand, name] of STORES) {
       const ex = db.prepare('SELECT id FROM stores WHERE code = ?').get(code);
+      if (!ex && db.prepare('SELECT 1 FROM users WHERE UPPER(username) = ?').get(code)) { io.out(`✗ 門市代號 ${code} 與既有帳號名稱相同，略過（請到管理頁處理）`); sum.skipped.push(code); continue; }
       if (!ex) {
         io.out(`${code}（${name}，品牌 ${brand}）尚未建立`);
         const pw = await askPassword(io, code);
@@ -84,25 +86,27 @@ async function run(db, io, opts) {
   }
 
   const people = [];
-  if (only === 'all' || only === 'accountants') ACCOUNTANTS.forEach((a) => people.push({ role: 'accountant', def: a[0], name: a[1], brands: a[2] }));
-  if (only === 'all' || only === 'admin') people.push({ role: 'admin', def: ADMIN[0], name: ADMIN[1], brands: [] });
+  if (only === 'all' || only === 'accountants') ACCOUNTANTS.forEach((a) => people.push({ role: 'accountant', label: a[0], note: a[1], brands: a[2] }));
+  if (only === 'all' || only === 'admin') people.push({ role: 'admin', label: ADMIN[0], note: ADMIN[1], brands: [] });
   if (people.length) io.out('\n== 會計與管理者');
   for (const p of people) {
-    io.out(`${p.name}（${p.role === 'admin' ? '管理者' : '會計，品牌 ' + p.brands.join('＋')}）`);
-    const typed = (await io.ask(`  帳號（英數 . _ -，3–40 字；直接 Enter＝${p.def}）：`)).trim();
-    const username = typed || p.def;
+    io.out(`${p.label}（${p.note}${p.brands.length ? '，' + p.brands.join('＋') : ''}）`);
+    const username = (await io.ask('  帳號（英數 . _ -，3–40 字；必填，留空＝略過這一位）：')).trim();
+    if (!username) { io.out('  － 略過'); sum.skipped.push(p.label); continue; }
     if (!USERNAME.test(username)) { io.out('  ✗ 帳號格式不對，略過這一位（請重跑工具）'); sum.skipped.push(username); continue; }
     if (db.prepare('SELECT 1 FROM stores WHERE code = ?').get(username.toUpperCase())) { io.out('  ✗ 帳號不可與門市代號相同，略過'); sum.skipped.push(username); continue; }
     const ex = db.prepare('SELECT id, role FROM users WHERE username = ?').get(username);
     if (ex && ex.role !== p.role) { io.out(`  ✗ ${username} 已存在但角色不同（${ex.role}），略過；請到管理頁處理`); sum.skipped.push(username); continue; }
     let uid;
     if (!ex) {
+      const dname = (await io.ask('  姓名（必填）：')).trim();
+      if (!dname) { io.out('  ✗ 姓名不可空白，略過這一位（請重跑工具）'); sum.skipped.push(username); continue; }
       const pw = await askPassword(io, username);
       db.tx(() => {
         uid = Number(db.prepare('INSERT INTO users (username, role, brand_id, name, pass_hash, active) VALUES (?,?,?,?,?,1)')
-          .run(username, p.role, p.brands[0] || null, p.name, hashPassword(pw)).lastInsertRowid);
+          .run(username, p.role, p.brands[0] || null, dname, hashPassword(pw)).lastInsertRowid);
         p.brands.forEach((b) => db.prepare('INSERT INTO user_brands (user_id, brand_id) VALUES (?,?)').run(uid, b));
-        audit(db, WHO, 'admin_user_create', null, null, { username, name: p.name, role: p.role, brand_ids: p.brands });
+        audit(db, WHO, 'admin_user_create', null, null, { username, name: dname, role: p.role, brand_ids: p.brands });
       });
       sum.created.push(username); io.out(`  ✓ 已建立 ${username}`);
     } else {
@@ -130,28 +134,25 @@ async function run(db, io, opts) {
   return sum;
 }
 
-// ---- 終端機輸入（readline 讀一般文字；密碼用 raw mode 逐字讀、不回顯） ----
+// ---- 終端機輸入：不用 readline（它會自己回顯）；stdin 全程 raw mode，自己逐字讀、自己決定要不要回顯 ----
 function makeTtyIo() {
-  const readline = require('readline');
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-  const ask = (q) => new Promise((r) => rl.question(q, r));
-  const askHidden = (q) => new Promise((resolve) => {
+  const stdin = process.stdin;
+  stdin.setRawMode(true); stdin.resume(); stdin.setEncoding('utf8');
+  let queue = []; let waiter = null;
+  stdin.on('data', (d) => { for (const c of d) queue.push(c); if (waiter) { const w = waiter; waiter = null; w(); } });
+  const nextChar = async () => { while (!queue.length) await new Promise((r) => { waiter = r; }); return queue.shift(); };
+  const readLine = async (q, echo) => {
     process.stdout.write(q);
-    rl.pause();
-    const stdin = process.stdin;
-    stdin.setRawMode(true); stdin.resume(); stdin.setEncoding('utf8');
     let buf = '';
-    const onData = (ch) => {
-      for (const c of ch) {
-        if (c === '\r' || c === '\n') { stdin.setRawMode(false); stdin.removeListener('data', onData); process.stdout.write('\n'); rl.resume(); return resolve(buf); }
-        if (c === '\u0003') { stdin.setRawMode(false); process.stdout.write('\n已中止\n'); process.exit(130); }
-        if (c === '\u007f' || c === '\b') { buf = buf.slice(0, -1); continue; }
-        if (c >= ' ') buf += c;
-      }
-    };
-    stdin.on('data', onData);
-  });
-  return { ask, askHidden, out: (s) => console.log(s), close: () => rl.close() };
+    for (;;) {
+      const c = await nextChar();
+      if (c === '\r' || c === '\n') { process.stdout.write('\n'); return buf; }
+      if (c === '\u0003') { try { stdin.setRawMode(false); } catch (e) { /* ignore */ } process.stdout.write('\n已中止\n'); process.exit(130); }
+      if (c === '\u007f' || c === '\b') { if (buf.length) { buf = buf.slice(0, -1); if (echo) process.stdout.write('\b \b'); } continue; }
+      if (c >= ' ') { buf += c; if (echo) process.stdout.write(c); }
+    }
+  };
+  return { ask: (q) => readLine(q, true), askHidden: (q) => readLine(q, false), out: (s) => console.log(s), close: () => { try { stdin.setRawMode(false); } catch (e) { /* ignore */ } stdin.pause(); } };
 }
 
 if (require.main === module) {

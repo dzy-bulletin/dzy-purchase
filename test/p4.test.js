@@ -140,3 +140,16 @@ test('P4 前端 config.js：本機預設 localhost:8794；正式網址佔位字�
   assert.strictEqual(cfgFor('dzy-bulletin.github.io', '?api=http://localhost:9999/purchase/api', deployed).API_BASE, 'https://example-host.ts.net/purchase/api');
   assert.strictEqual(cfgFor('localhost', '?api=https://evil.example/purchase/api').API_BASE, 'http://localhost:8794/purchase/api');
 });
+
+test('P4 PUT /admin/users 只給 brand_id 不縮減多品牌；給 brand_ids 才覆蓋；預設品牌不在清單內 → BAD_INPUT', async () => {
+  const t = await startApp();
+  try {
+    const { admin, id } = await mkMulti(t);
+    const up = await t.call('PUT', `/admin/users/${id}`, { token: admin, body: { brand_id: 'X' } });
+    assert.deepStrictEqual(up.data.brand_ids, ['C', 'X']); assert.strictEqual(up.data.brand_id, 'X');
+    const bad = await t.call('PUT', `/admin/users/${id}`, { token: admin, body: { brand_id: 'M' } });
+    assert.strictEqual(bad.error, 'BAD_INPUT');
+    const ow = await t.call('PUT', `/admin/users/${id}`, { token: admin, body: { brand_ids: ['M'], brand_id: 'M' } });
+    assert.deepStrictEqual(ow.data.brand_ids, ['M']);
+  } finally { await t.close(); }
+});

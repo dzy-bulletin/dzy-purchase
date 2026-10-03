@@ -126,6 +126,9 @@ module.exports = function register(ctx) {
     if (b.brand_ids !== undefined) {
       if (!Array.isArray(b.brand_ids)) throw new ApiError('BAD_INPUT', 'brand_ids 必須是陣列');
       ids = [...new Set(b.brand_ids.map(String))];
+    } else if (b.brand_id !== undefined && cur.id && cur.role === 'accountant' && brandIdsOf(cur.id).length) {
+      ids = brandIdsOf(cur.id);       // 既有會計只給 brand_id＝改預設品牌，不縮減多品牌（要改清單請給 brand_ids）
+      if (b.brand_id && !ids.includes(b.brand_id)) throw new ApiError('BAD_INPUT', '預設品牌必須在 brand_ids 內；要新增品牌請給 brand_ids');
     } else if (b.brand_id !== undefined) ids = b.brand_id ? [b.brand_id] : [];
     else ids = cur.id ? brandIdsOf(cur.id) : [];
     let brand = b.brand_id !== undefined && b.brand_id ? b.brand_id : cur.brand_id;
