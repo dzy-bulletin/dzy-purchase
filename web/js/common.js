@@ -93,6 +93,7 @@ var Common = (function () {
         (o.loginHint ? '<p class="muted">' + esc(o.loginHint) + '</p>' : '') +
         '<label class="f" style="margin-top:.8rem">' + esc(o.accLabel || '帳號') + '<input id="acc" autocomplete="username" autocapitalize="none"></label>' +
         '<label class="f" style="margin-top:.8rem">密碼<input id="pw" type="password" autocomplete="current-password"></label>' +
+        '<p class="muted" style="font-size:.85rem;margin:.4rem 0 0">' + esc(o.pwHint || '第一次使用：請輸入管理者給你的臨時密碼，登入後系統會請你設定自己的新密碼。') + '</p>' +
         '<div id="loginMsg"></div><button id="loginBtn" class="primary" type="button" style="width:100%;margin-top:1rem;min-height:48px">登入</button></div></div>';
       $('loginBtn').onclick = doLogin;
       $('pw').addEventListener('keydown', function (e) { if (e.key === 'Enter') doLogin(); });
@@ -101,6 +102,8 @@ var Common = (function () {
       $('loginMsg').innerHTML = '';
       try {
         var acc = $('acc').value.trim(); if (o.upper) acc = acc.toUpperCase();
+        if (!acc) throw new Error('請輸入' + (o.accLabel || '帳號'));
+        if (!$('pw').value) throw new Error('請輸入密碼');
         var d = await API.login(acc, $('pw').value);
         if (o.roles.indexOf(d.role) < 0) { API.logout(); throw new Error(o.roleError || '這個帳號不能用在這個頁面'); }
         start();

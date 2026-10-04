@@ -280,7 +280,8 @@ $('moreBtn').onclick = function () { showAll = true; loadMine(); };
 $('refresh').onclick = loadMine;
 
 Common.gate({
-  title: '貨單上傳', roles: ['store'], roleError: '請用門市代號登入', upper: true,
+  title: '貨單上傳', roles: ['store'], roleError: '這是門市專用頁面，請用門市代號登入（會計與管理者請到核對頁）', upper: true,
+  pwHint: '第一次使用：請輸入店長給你的臨時密碼，登入後系統會請你設定自己的新密碼。忘記密碼請找店長重設。',
   loginHint: '請用門市代號登入（例如 MDGF）', accLabel: '門市代號',
   onReady: function (s) { $('who').textContent = s.name || s.store_id || ''; $('ver').textContent = CFG.VERSION; loadVendors(); loadMine(); updatePending(); flush(); }
 });
