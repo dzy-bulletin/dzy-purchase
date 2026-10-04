@@ -64,7 +64,7 @@ function withBase(r, conv) {
   return Object.assign({}, r, { converted: ok, base_qty: ok ? Math.round(base * 10000) / 10000 : null, net_amount: net, unit_cost: ok ? round2(net / base) : null });
 }
 function netRatio(s) {
-  if (!s.tax_included || s.tax == null || !(s.total > 0)) return 1;
+  if (!s.tax_included || s.tax == null || !(s.total > 0) || s.tax < 0 || s.tax >= s.total) return 1;
   return (s.total - s.tax) / s.total;
 }
 

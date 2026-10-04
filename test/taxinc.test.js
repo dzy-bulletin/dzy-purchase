@@ -57,7 +57,7 @@ test('規則：含稅單 35,120／33,448／1,672 勾選後相符、未勾選仍�
   assert.strictEqual(sumCheck(sum(TEN), 33000, 1672, 35120, 1).ok, false);
   // 只填稅額不填未稅合計（或相反、或都空白）→ 不核對
   assert.strictEqual(sumCheck(sum(TEN), null, 1672, 35120, 1).ok, true);
-  assert.strictEqual(sumCheck(sum(TEN), null, 99999, 35120, 1).ok, true);
+  assert.strictEqual(sumCheck(sum(TEN), null, 99999, 35120, 1).ok, false);   // 審查 🟡：稅額 ≥ 總額一律紅（AI 常把總計誤讀進稅額欄）
   assert.strictEqual(sumCheck(sum(TEN), 12345, null, 35120, 1).ok, true);
   assert.strictEqual(sumCheck(sum(TEN), null, null, 35120, 1).ok, true);
   // 缺值仍是紅
@@ -209,4 +209,16 @@ test('遷移 v9：既有 v8 資料庫安全升級，既有貨單與廠商 tax_in
   db = openDb(dir);
   assert.strictEqual(db.prepare('PRAGMA user_version').get().user_version, 9);
   db.close(); fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('審查 🟡：含稅單稅額 ≥ 總額或為負 → 不相符；未稅比例退回 1:1（不產生 0 或負單價）', () => {
+  const Rules = require('../web/js/rules.js');
+  const calc = require('../server/calc.js');
+  assert.strictEqual(Rules.sumCheck([1000], null, 2000, 1000, true).ok, false);
+  assert.strictEqual(Rules.sumCheck([1000], null, 1000, 1000, true).ok, false);
+  assert.strictEqual(Rules.sumCheck([1000], null, -5, 1000, true).ok, false);
+  assert.strictEqual(Rules.sumCheck([1050], null, 50, 1050, true).ok, true);
+  if (typeof calc.netRatio === 'function') {
+    assert.strictEqual(calc.netRatio({ tax_included: 1, tax: 2000, total: 1000 }), 1);
+  }
 });

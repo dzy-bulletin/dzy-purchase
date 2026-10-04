@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#FBFBF9">
-<title>門市進貨拍照｜鼎兆元</title>
-<meta name="description" content="鼎兆元｜門市收貨時用手機拍廠商貨單，送出即可，會計會在後台核對入帳。">
+<title>門市上傳｜貨單辨識系統</title>
+<meta name="description" content="鼎兆元貨單辨識系統｜門市收貨時用手機拍廠商貨單，送出即可，會計會在後台核對入帳。">
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="鼎兆元">
-<meta property="og:title" content="門市進貨拍照">
-<meta property="og:description" content="鼎兆元｜門市收貨時用手機拍廠商貨單，送出即可，會計會在後台核對入帳。">
+<meta property="og:site_name" content="鼎兆元貨單辨識系統｜貨單辨識系統">
+<meta property="og:title" content="貨單辨識系統｜門市上傳">
+<meta property="og:description" content="鼎兆元貨單辨識系統｜門市收貨時用手機拍廠商貨單，送出即可，會計會在後台核對入帳。">
 <meta property="og:url" content="https://dzy-bulletin.github.io/dzy-purchase/upload.html">
 <meta property="og:image" content="https://dzy-bulletin.github.io/dzy-purchase/img/og.png">
 <meta property="og:image:width" content="1200">
@@ -281,7 +281,7 @@ $('refresh').onclick = loadMine;
 
 Common.gate({
   title: '貨單上傳', roles: ['store'], roleError: '這是門市專用頁面，請用門市代號登入（會計與管理者請到核對頁）', upper: true,
-  pwHint: '第一次使用：請輸入店長給你的臨時密碼，登入後系統會請你設定自己的新密碼。忘記密碼請找店長重設。',
+  pwHint: '第一次使用的預設密碼是 000000，登入後系統會請你設定自己的新密碼。忘記密碼請找管理者重設。',
   loginHint: '請用門市代號登入（例如 MDGF）', accLabel: '門市代號',
   onReady: function (s) { $('who').textContent = s.name || s.store_id || ''; $('ver').textContent = CFG.VERSION; loadVendors(); loadMine(); updatePending(); flush(); }
 });

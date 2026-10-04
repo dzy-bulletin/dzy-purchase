@@ -12,7 +12,7 @@
     var missing = total == null || !amounts.length || amounts.some(function (a) { return a == null; });
     var sum = round2(amounts.reduce(function (s, a) { return s + (a == null ? 0 : a); }, 0));
     var ok;
-    if (taxIncluded) ok = !missing && near(sum, total) && (subtotal == null || tax == null || near(round2(subtotal + tax), total));
+    if (taxIncluded) ok = !missing && near(sum, total) && (tax == null || (tax >= 0 && tax < total)) && (subtotal == null || tax == null || near(round2(subtotal + tax), total));
     else ok = !missing && near(round2(sum + (tax == null ? 0 : tax)), total) && (subtotal == null || near(sum, subtotal));
     return { sum: sum, ok: ok, missing: missing };
   }
