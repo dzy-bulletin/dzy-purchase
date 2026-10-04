@@ -6,7 +6,7 @@
    ?api= 覆寫：只有在本機開頁時生效，而且只收 http://localhost|127.0.0.1:埠/purchase/api。 */
 'use strict';
 var CFG = (function () {
-  var DEPLOY_BASE = '__FUNNEL__/purchase/api';
+  var DEPLOY_BASE = 'https://dingzhaoyuandemac-mini.tailc27c34.ts.net/purchase/api';
   var local = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
   var c = { VERSION: '0.2.0', API_BASE: local ? 'http://localhost:8794/purchase/api' : DEPLOY_BASE, TIMEOUT: 60000, UNCONFIGURED: false };
   if (!local && DEPLOY_BASE.indexOf('__FUN' + 'NEL__') === 0) { c.API_BASE = ''; c.UNCONFIGURED = true; }   // 佔位字串還沒換（比對字串拆開寫，免得部署時的全域取代連它一起換掉）

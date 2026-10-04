@@ -121,7 +121,9 @@ test('P4 門市代號：實際代號登入、帳號名稱不可與門市代號�
 const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
-const CONFIG_SRC = fs.readFileSync(path.join(__dirname, '..', 'web', 'js', 'config.js'), 'utf8');
+// 正式部署後 config.js 已填入真實網址（DEPLOY.md 第 9 步）；測試一律還原成佔位字串版本再驗，不依賴目前檔案是否已部署
+const CONFIG_SRC = fs.readFileSync(path.join(__dirname, '..', 'web', 'js', 'config.js'), 'utf8')
+  .replace(/var DEPLOY_BASE = 'https:\/\/[^']*?(\/purchase\/api)?'/, "var DEPLOY_BASE = '__FUNNEL__/purchase/api'");
 function cfgFor(hostname, search, src) {
   const ctx = { location: { hostname, search }, URLSearchParams };
   vm.createContext(ctx); vm.runInContext(src || CONFIG_SRC, ctx); return vm.runInContext('CFG', ctx);
