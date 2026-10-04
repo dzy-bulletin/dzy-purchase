@@ -70,7 +70,7 @@ module.exports = function register(ctx) {
     if (db.prepare('SELECT 1 FROM users WHERE UPPER(username) = ?').get(code)) throw new ApiError('CONFLICT', '這個代號與某個會計／管理者帳號相同，請改用別的代號');
     const pw = password(b.password);
     return db.tx(() => {
-      const id = db.prepare('INSERT INTO stores (brand_id, code, name, pass_hash, active, pnl_unit_code) VALUES (?,?,?,?,?,?)')
+      const id = db.prepare('INSERT INTO stores (brand_id, code, name, pass_hash, active, pnl_unit_code, must_change_password) VALUES (?,?,?,?,?,?,1)')
         .run(b.brand_id, code, text(b.name, '門市名稱'), hashPassword(pw), bool(b.active, 1), b.pnl_unit_code === undefined ? null : unitCode(b.pnl_unit_code)).lastInsertRowid;
       const row = db.prepare('SELECT * FROM stores WHERE id = ?').get(Number(id));
       audit(db, who(p), 'admin_store_create', null, null, adminStoreOut(row));
@@ -103,7 +103,7 @@ module.exports = function register(ctx) {
           P.markAllForStore(db, s.id, new Date().toISOString());                       // 設定／更換代號 → 該店所有有入帳的月份推一次
         }
       }
-      if (b.password !== undefined) { set.pass_hash = hashPassword(password(b.password)); set.fail_count = 0; set.locked_until = null; }
+      if (b.password !== undefined) { set.pass_hash = hashPassword(password(b.password)); set.fail_count = 0; set.locked_until = null; set.must_change_password = 1; }
       const cols = Object.keys(set);
       if (cols.length) db.prepare(`UPDATE stores SET ${cols.map((c) => c + ' = ?').join(', ')} WHERE id = ?`).run(...cols.map((c) => set[c]), s.id);
       if (b.password !== undefined || set.active === 0) dropSessions('store', s.id);
@@ -154,7 +154,7 @@ module.exports = function register(ctx) {
     const { role, brand, ids } = userRole(b, {});
     const pw = password(b.password);
     return db.tx(() => {
-      const id = db.prepare('INSERT INTO users (username, role, brand_id, name, pass_hash, active) VALUES (?,?,?,?,?,?)')
+      const id = db.prepare('INSERT INTO users (username, role, brand_id, name, pass_hash, active, must_change_password) VALUES (?,?,?,?,?,?,1)')
         .run(username, role, brand, text(b.name, '姓名'), hashPassword(pw), bool(b.active, 1)).lastInsertRowid;
       setUserBrands(Number(id), ids);
       const row = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(id));
@@ -179,7 +179,7 @@ module.exports = function register(ctx) {
       let newIds = null;
       if (b.role !== undefined || b.brand_id !== undefined || b.brand_ids !== undefined) { const r = userRole(b, u); set.role = r.role; set.brand_id = r.brand; newIds = r.ids; }
       if (p.kind === 'user' && p.id === u.id && (set.active === 0 || (set.role && set.role !== 'admin'))) throw new ApiError('BAD_INPUT', '不能停用或降級自己的帳號');
-      if (b.password !== undefined) { set.pass_hash = hashPassword(password(b.password)); set.fail_count = 0; set.locked_until = null; }
+      if (b.password !== undefined) { set.pass_hash = hashPassword(password(b.password)); set.fail_count = 0; set.locked_until = null; set.must_change_password = (p.kind === 'user' && p.id === u.id) ? 0 : 1; }
       const cols = Object.keys(set);
       if (newIds) setUserBrands(u.id, newIds);
       if (cols.length) db.prepare(`UPDATE users SET ${cols.map((c) => c + ' = ?').join(', ')} WHERE id = ?`).run(...cols.map((c) => set[c]), u.id);

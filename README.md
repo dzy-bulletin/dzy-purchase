@@ -16,6 +16,14 @@
 - 會計在核對畫面輸入的日期只收 `YYYY-MM-DD` 與民國 `YYY-MM-DD`／`YYY/MM/DD`，其他回 BAD_INPUT「日期格式看不懂，請重新輸入」；儲存送出的日期視為人工確認，移除 DATE_FIXED。總額規則：各列金額加總＋稅額（空白＝0）＝總額，未稅合計只核對（前後端共用 `web/js/rules.js`）。
 - 辨識單次逾時 `OLLAMA_TIMEOUT_S`（預設 300 秒，可設小數）。
 
+## 帳號與密碼（首次登入強制改密碼）
+帳號由管理者開、密碼由使用者自己設。
+- 欄位 `must_change_password`（stores、users；migration v8）。遷移時**既有門市與會計＝1、admin＝0**。`create-accounts.js` 建立或重設門市／會計密碼＝1、admin＝0；管理頁（`POST/PUT /admin/stores|users`）建立帳號或給 `password` 重設＝1（admin 改自己的除外）。
+- 登入成功回 `data.must_change_password`。為 `true` 的 session **只能呼叫** `POST /password` 與 `POST /logout`，其他 API 一律回 HTTP 403、錯誤代碼 `PASSWORD_CHANGE_REQUIRED`（「第一次登入請先設定你自己的密碼」）。
+- `POST /password`：body `{old_password, new_password}`，**所有角色（含 admin）隨時可用**。新密碼至少 6 字、不可與舊密碼相同、舊密碼要對（皆回 `BAD_INPUT`）。成功：旗標清 0、該帳號**所有** session 作廢、回新的 `{token, expires_at, must_change_password:false}`（前端換掉 token 即可繼續使用）。
+- 密碼與雜湊不進 log、不進 audit（audit 只記 `password_change`／`password_changed: true`）。
+- 前端四頁（upload／review／reports／admin）：登入後或任一 API 回 `PASSWORD_CHANGE_REQUIRED` 會顯示「第一次登入請設定你自己的密碼」；側欄底部與上傳頁標題列有「改密碼」。
+
 ## 計算說明（P2）
 - 統一單位：只有單位與品項的統一單位**完全相同**時才當 1；單位空白或沒設換算 → 標 `UNIT_UNCONVERTED`，不進加權平均與價格比較，金額照計入成本。
 - 價格變動提醒「不回頭重算」：只在入帳當下，與「排在本張之前、最近一筆已入帳」比一次。若較晚日期的貨單先入帳、較早日期的後入帳，先入帳的那張不會被重算，提醒反映的是入帳當下的狀態。

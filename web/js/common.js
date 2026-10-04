@@ -66,12 +66,12 @@ var Common = (function () {
       picker = '<label class="spick">目前品牌<select id="brandSwitch">' + s.brands.map(function (b) { return '<option value="' + esc(b.id) + '"' + (s.brand_id === b.id ? ' selected' : '') + '>' + esc(b.name || BRAND_NAME[b.id] || b.id) + '</option>'; }).join('') + '</select></label>';
     }
     return picker + '<nav id="snav" aria-label="主選單">' + groups + '</nav>' +
-      '<div class="suser"><div class="who"><div class="nm">' + esc(s.name || '') + '</div><div class="rl">' + esc(ROLE_TEXT[s.role] || s.role) + '</div></div><button id="logout" type="button">登出</button></div>';
+      '<div class="suser"><div class="who"><div class="nm">' + esc(s.name || '') + '</div><div class="rl">' + esc(ROLE_TEXT[s.role] || s.role) + '</div></div><button id="chpw" type="button">改密碼</button><button id="logout" type="button">登出</button></div>';
   }
 
   function headerHTML(o, s) {
     return '<header class="hdr"><div class="logos"></div><span class="ttl">' + esc(o.title) + '</span>' +
-      (s && !o.nav ? '<button id="logout" type="button" class="hout">登出</button>' : '') + '</header>';
+      (s && !o.nav ? '<button id="chpw" type="button" class="hout">改密碼</button><button id="logout" type="button" class="hout">登出</button>' : '') + '</header>';
   }
 
   /* o: {title, nav, roles:[...], loginTitle, loginHint, accLabel, upper, onHash(key), onReady(session)}
@@ -106,13 +106,42 @@ var Common = (function () {
         start();
       } catch (e) { $('loginMsg').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; }
     }
-    function start() {
+    /* 改密碼畫面。forced＝第一次登入（或後端回 PASSWORD_CHANGE_REQUIRED）：不能略過；否則可取消回原頁 */
+    function showChange(forced) {
+      var s = API.session() || {};
+      if (shell) shell.classList.add('hidden');
+      app.classList.add('hidden'); loginBox.classList.remove('hidden');
+      hdr.innerHTML = headerHTML(o, null); applyTheme(s.role === 'admin' ? null : s.brand_id);
+      loginBox.innerHTML = '<div class="page" style="max-width:440px;padding-top:2rem"><div class="card"><h1>' + (forced ? '第一次登入請設定你自己的密碼' : '改密碼') + '</h1>' +
+        '<p class="muted">' + (forced ? '目前的密碼是管理者給的臨時密碼，請改成只有你自己知道的密碼（至少 6 個字）。' : '新密碼至少 6 個字，不可與舊密碼相同。') + '</p>' +
+        '<label class="f" style="margin-top:.8rem">舊密碼' + (forced ? '（臨時密碼）' : '') + '<input id="pwOld" type="password" autocomplete="current-password"></label>' +
+        '<label class="f" style="margin-top:.8rem">新密碼<input id="pwNew" type="password" autocomplete="new-password"></label>' +
+        '<label class="f" style="margin-top:.8rem">確認新密碼<input id="pwNew2" type="password" autocomplete="new-password"></label>' +
+        '<div id="pwMsg"></div><button id="pwBtn" class="primary" type="button" style="width:100%;margin-top:1rem;min-height:48px">' + (forced ? '設定密碼並進入' : '儲存新密碼') + '</button>' +
+        (forced ? '<button id="pwOut" type="button" style="width:100%;margin-top:.6rem;min-height:44px">登出</button>' : '<button id="pwCancel" type="button" style="width:100%;margin-top:.6rem;min-height:44px">取消</button>') + '</div></div>';
+      async function submit() {
+        var a = $('pwOld').value, b = $('pwNew').value, c = $('pwNew2').value;
+        var err = !a || !b ? '請輸入舊密碼與新密碼' : b.length < 6 ? '新密碼至少 6 個字' : b === a ? '新密碼不可與舊密碼相同' : b !== c ? '兩次輸入的新密碼不一樣' : '';
+        if (err) { $('pwMsg').innerHTML = '<div class="msg err">' + esc(err) + '</div>'; return; }
+        $('pwBtn').disabled = true;
+        try { await API.changePassword(a, b); start(); }
+        catch (e) { $('pwBtn').disabled = false; $('pwMsg').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; }
+      }
+      $('pwBtn').onclick = submit;
+      $('pwNew2').addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+      if ($('pwOut')) $('pwOut').onclick = function () { API.logout(); showLogin(); };
+      if ($('pwCancel')) $('pwCancel').onclick = function () { start(true); };
+    }
+    var started = false;
+    function start(resume) {
       var s = API.session();
+      if (s.must_change_password) { showChange(true); return; }
       loginBox.classList.add('hidden'); loginBox.innerHTML = ''; app.classList.remove('hidden');
       hdr.innerHTML = headerHTML(o, s);
       applyTheme(s.role === 'admin' ? null : s.brand_id);
       if (o.nav) { ensureShell().classList.remove('hidden'); $('side').innerHTML = sideHTML(s); syncNav(); }
       $('logout').onclick = function () { API.logout(); showLogin(); };
+      $('chpw').onclick = function () { showChange(false); };
       if ($('brandSwitch')) $('brandSwitch').onchange = async function () {
         var sel = this, want = sel.value, cur = s.brand_id;
         try {
@@ -122,9 +151,11 @@ var Common = (function () {
         } catch (e) { sel.value = cur; alert(e.message); }
       };
       if ($('brandPick')) $('brandPick').onchange = function () { try { localStorage.setItem(ADMIN_KEY, this.value); } catch (e) {} location.reload(); };
-      o.onReady(s);
+      if (resume && started) return;                        // 取消改密碼回到原頁：不重跑 onReady
+      started = true; o.onReady(s);
     }
     API.onUnauthorized = showLogin;
+    API.onPasswordRequired = function () { API.update({ must_change_password: true }); showChange(true); };
     window.addEventListener('hashchange', function () { syncNav(); if (o.onHash && API.session()) o.onHash((location.hash || '').slice(1)); });
     var s0 = API.session();
     if (s0 && o.roles.indexOf(s0.role) >= 0) start(); else { if (s0) API.logout(); showLogin(); }

@@ -8,6 +8,7 @@ async function mkMulti(t) {
   const admin = await t.login('admin', PASS.SEED_PASS_ADMIN);
   const r = await t.call('POST', '/admin/users', { token: admin, body: { username: 'acc-cx', name: '多品牌會計（測試）', role: 'accountant', brand_ids: ['C', 'X'], brand_id: 'C', password: 'pw-acccx' } });
   assert.strictEqual(r.ok, true, JSON.stringify(r));
+  t.app.db.prepare('UPDATE users SET must_change_password = 0 WHERE id = ?').run(r.data.id);   // 這支測試不關心首次改密碼（P5 另測）
   return { admin, id: r.data.id, row: r.data };
 }
 

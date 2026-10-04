@@ -1,6 +1,6 @@
 'use strict';
 // HTTP 小工具：錯誤、JSON 回應、請求體讀取、multipart 解析（只用 Node 內建）
-const STATUS = { AUTH: 401, LOCKED: 403, FORBIDDEN: 403, NOT_FOUND: 404, BAD_INPUT: 400, CONFLICT: 409, RED_FLAGS: 409, INTERNAL: 500 };
+const STATUS = { AUTH: 401, LOCKED: 403, FORBIDDEN: 403, PASSWORD_CHANGE_REQUIRED: 403, NOT_FOUND: 404, BAD_INPUT: 400, CONFLICT: 409, RED_FLAGS: 409, INTERNAL: 500 };
 
 class ApiError extends Error {
   constructor(code, message) { super(message); this.code = code; this.status = STATUS[code] || 500; }

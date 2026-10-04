@@ -117,13 +117,20 @@ function makeApp(cfg, opts) {
     const b = parseJson(raw);
     const r = A.login(db, b.account, b.password, now());
     const p = r.principal;
-    return { token: r.token, expires_at: r.expires_at, role: p.role, name: p.name, brand: p.brand_id, brand_id: p.brand_id, brands: p.brands, store_id: p.store_id, store: p.kind === 'store' ? { id: p.id, code: p.code, name: p.name } : null };
+    return { token: r.token, expires_at: r.expires_at, role: p.role, must_change_password: p.must_change_password, name: p.name, brand: p.brand_id, brand_id: p.brand_id, brands: p.brands, store_id: p.store_id, store: p.kind === 'store' ? { id: p.id, code: p.code, name: p.name } : null };
   });
   // 會計切換目前品牌（P4）：之後所有依品牌過濾的 API 都用這個品牌
   route('POST', /^\/session\/brand$/, ['accountant'], async ({ req, p }) => {
     const b = parseJson(await readBody(req, 16 * 1024));
     A.switchBrand(db, p, b.brand_id);
     return { brand_id: p.brand_id, brands: p.brands };
+  });
+  // 自己改密碼（所有角色；首次登入強制改密碼時唯一能呼叫的 API 之一）
+  route('POST', /^\/password$/, ['store', 'accountant', 'admin'], async ({ req, p }) => {
+    const b = parseJson(await readBody(req, 16 * 1024));
+    const r = A.changePassword(db, p, b.old_password, b.new_password, now());
+    audit(db, A.whoOf(p), 'password_change', null, null, { by: 'self' });
+    return { token: r.token, expires_at: r.expires_at, must_change_password: false };
   });
   route('POST', /^\/logout$/, ['store', 'accountant', 'admin'], async ({ p }) => { A.logout(db, p); return {}; });
 
@@ -428,7 +435,10 @@ function makeApp(cfg, opts) {
         matched = true;
         if (r.method !== req.method) continue;
         let p = null;
-        if (r.roles) { p = A.authenticate(db, req, now()); A.requireRole(p, ...r.roles); }
+        if (r.roles) {
+          p = A.authenticate(db, req, now()); A.requireRole(p, ...r.roles);
+          if (p.must_change_password && sub !== '/password' && sub !== '/logout') throw new ApiError('PASSWORD_CHANGE_REQUIRED', '第一次登入請先設定你自己的密碼');
+        }
         const out = await r.fn({ req, res, p, m, url });
         if (out === RAW) return;
         return sendJson(res, 200, { ok: true, data: out === undefined ? {} : out }, cors);

@@ -434,7 +434,7 @@ echo "第 6 步 Funnel /purchase 分流：佈告欄基準（五值）前後一�
 export PATH="$HOME/.local/node/bin:$PATH"; cd "$HOME/dzy-purchase" && node server/tools/create-accounts.js
 ```
 
-- 工具會依序問：門市 `CF`（中央廚房，品牌央廚）、`MDGF`（麻的小辛辣新竹光復，小辛辣）、`MZTGF`／`MZTZS`／`MZTLZL`（墨竹亭新竹光復／新竹金山／台北六張犁，墨竹亭）各自的密碼；**會計 A（品牌：中央廚房＋小辛辣）**、**會計 B（品牌：墨竹亭）**、管理者各一位。**帳號名稱與姓名都由 Eason 當場輸入**（手冊與程式不寫死任何人的真名與帳號；管理者帳號請用不易猜的名字，不要用 `admin`）；帳號留空＝略過那一位。密碼輸入時**畫面不會出現任何字**（工具自己逐字讀、不回顯）、要輸入兩次、至少 6 個字元。**建帳號前先清空終端機視窗與捲動紀錄（⌘K）**，做完也再清一次。
+- 工具會依序問：門市 `CF`（中央廚房，品牌央廚）、`MDGF`（麻的小辛辣新竹光復，小辛辣）、`MZTGF`／`MZTZS`／`MZTLZL`（墨竹亭新竹光復／新竹金山／台北六張犁，墨竹亭）各自的密碼；**會計 A（品牌：中央廚房＋小辛辣）**、**會計 B（品牌：墨竹亭）**、管理者各一位。**帳號名稱與姓名都由 Eason 當場輸入**（手冊與程式不寫死任何人的真名與帳號；管理者帳號請用不易猜的名字，不要用 `admin`）；帳號留空＝略過那一位。**這裡輸入的是臨時密碼，對方（店長、會計）第一次登入會被要求改成自己的密碼**（admin 帳號不強制，但也可隨時自己改）；改完後這組臨時密碼就失效，之後 Eason 也不知道對方的密碼。密碼輸入時**畫面不會出現任何字**（工具自己逐字讀、不回顯）、要輸入兩次、至少 6 個字元。**建帳號前先清空終端機視窗與捲動紀錄（⌘K）**，做完也再清一次。
 - 已存在的帳號預設跳過；要重設密碼才答 `y`（可重跑，不會重複建立）。看目前狀態不改東西：`node server/tools/create-accounts.js --list`。
 - 密碼不要貼進 Claude 的對話框、LINE、issue、任何檔案。門市密碼由 Eason 親自交給店長。
 
@@ -635,6 +635,23 @@ E="$HOME/dzy-purchase/server/.env"; DATA="$HOME/dzy-purchase-data"
 Funnel 網址：**在對話裡**交給 Eason，不寫在上面（唯一例外：第 9 步 Eason 填進 `web/js/config.js`）。
 
 ---
+
+## 部署中途更新（程式已有新版、Mac mini 已在跑）
+
+更新是安全的：資料庫遷移以 `PRAGMA user_version` 自動往上（v8＝首次登入強制改密碼：既有門市與會計帳號設為「第一次登入要改密碼」、admin 不用），在交易內執行、失敗會整段回滾，不會掉資料。**更新前先備份 `$DATA/purchase.db`（`cp` 一份即可）。** 注意：更新後**所有既有門市與會計第一次登入都會被要求改密碼**，先告知店長與會計。
+
+在 Mac mini 上：
+
+```sh
+export PATH="$HOME/.local/node/bin:$PATH"; cd ~/dzy-purchase && git pull && npm ci
+```
+
+接著依你的部署路線重啟（先看是哪一條：`launchctl print gui/$(id -u)/com.dzy.purchase` 有輸出＝路線 A）：
+
+- 路線 A（LaunchAgent）：`launchctl kickstart -k gui/$(id -u)/com.dzy.purchase`
+- 路線 D（LaunchDaemon）：交給 Eason 執行 `sudo launchctl kickstart -k system/com.dzy.purchase`（Claude 不用 sudo）
+
+重啟後確認：`curl -s http://127.0.0.1:8794/purchase/api/health`（要回 `"ok":true`；等 5 秒內可重打）。前端（GitHub Pages）另在 MacBook 上 push，**更新前端記得保留第 9 步已換好的 `config.js` 網址**。
 
 ## 故障排除
 

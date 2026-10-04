@@ -41,10 +41,10 @@ function currentBrand(brands, sessionBrand, defaultBrand) {
   return ids[0] || null;
 }
 function principalOf(kind, row, db, sessionBrand) {
-  if (kind === 'store') return { kind, role: 'store', id: row.id, store_id: row.id, brand_id: row.brand_id, brands: [], name: row.name, code: row.code };
+  if (kind === 'store') return { kind, role: 'store', must_change_password: !!row.must_change_password, id: row.id, store_id: row.id, brand_id: row.brand_id, brands: [], name: row.name, code: row.code };
   const brands = row.role === 'accountant' ? brandsOf(db, row.id) : [];
   const brand = row.role === 'accountant' ? currentBrand(brands, sessionBrand, row.brand_id) : row.brand_id;
-  return { kind, role: row.role, id: row.id, store_id: null, brand_id: brand, brands, name: row.name, username: row.username };
+  return { kind, role: row.role, id: row.id, store_id: null, must_change_password: !!row.must_change_password, brand_id: brand, brands, name: row.name, username: row.username };
 }
 const whoOf = (p) => `${p.kind}:${p.id}`;
 
@@ -94,6 +94,25 @@ function switchBrand(db, principal, brandId) {
   return principal;
 }
 
+// 自己改密碼（所有角色隨時可用；首次登入強制改密碼也走這裡）。成功：旗標清 0、該帳號所有 session 作廢、回新 token
+function changePassword(db, principal, oldPw, newPw, now) {
+  now = now || new Date();
+  if (typeof oldPw !== 'string' || typeof newPw !== 'string' || !oldPw || !newPw) throw new ApiError('BAD_INPUT', '請輸入舊密碼與新密碼');
+  if (newPw.length < 6 || newPw.length > 200) throw new ApiError('BAD_INPUT', '新密碼至少 6 個字');
+  if (newPw === oldPw) throw new ApiError('BAD_INPUT', '新密碼不可與舊密碼相同');
+  const table = principal.kind === 'store' ? 'stores' : 'users';
+  const row = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(principal.id);
+  if (!verifyPassword(oldPw, row.pass_hash)) throw new ApiError('BAD_INPUT', '舊密碼不正確');
+  const token = crypto.randomBytes(32).toString('hex');
+  const expires = new Date(now.getTime() + (principal.kind === 'store' ? STORE_DAYS : USER_DAYS) * 86400e3).toISOString();
+  db.tx(() => {
+    db.prepare(`UPDATE ${table} SET pass_hash = ?, must_change_password = 0, fail_count = 0, locked_until = NULL WHERE id = ?`).run(hashPassword(newPw), principal.id);
+    db.prepare('DELETE FROM sessions WHERE who = ?').run(whoOf(principal));
+    db.prepare('INSERT INTO sessions (token_hash, who, expires_at, created_at, brand_id) VALUES (?,?,?,?,?)').run(sha256(token), whoOf(principal), expires, now.toISOString(), principal.role === 'accountant' ? principal.brand_id : null);
+  });
+  return { token, expires_at: expires };
+}
+
 function logout(db, principal) { db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(principal.token_hash); }
 
 function requireRole(principal, ...roles) {
@@ -109,4 +128,4 @@ function canSeeSlip(p, slip, { storeOwn = true } = {}) {
   return false;
 }
 
-module.exports = { hashPassword, verifyPassword, login, authenticate, logout, switchBrand, requireRole, canSeeSlip, whoOf, sha256 };
+module.exports = { changePassword, hashPassword, verifyPassword, login, authenticate, logout, switchBrand, requireRole, canSeeSlip, whoOf, sha256 };

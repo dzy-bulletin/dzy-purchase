@@ -69,14 +69,14 @@ async function run(db, io, opts) {
         io.out(`${code}（${name}，品牌 ${brand}）尚未建立`);
         const pw = await askPassword(io, code);
         db.tx(() => {
-          db.prepare('INSERT INTO stores (brand_id, code, name, pass_hash, active) VALUES (?,?,?,?,1)').run(brand, code, name, hashPassword(pw));
+          db.prepare('INSERT INTO stores (brand_id, code, name, pass_hash, active, must_change_password) VALUES (?,?,?,?,1,1)').run(brand, code, name, hashPassword(pw));
           audit(db, WHO, 'admin_store_create', null, null, { code, name, brand_id: brand });
         });
         sum.created.push(code); io.out(`  ✓ 已建立 ${code}`);
       } else if (await yes(io, `${code} 已存在，要重設密碼嗎？`)) {
         const pw = await askPassword(io, code);
         db.tx(() => {
-          db.prepare('UPDATE stores SET pass_hash = ?, fail_count = 0, locked_until = NULL WHERE id = ?').run(hashPassword(pw), ex.id);
+          db.prepare('UPDATE stores SET pass_hash = ?, must_change_password = 1, fail_count = 0, locked_until = NULL WHERE id = ?').run(hashPassword(pw), ex.id);
           db.prepare('DELETE FROM sessions WHERE who = ?').run(`store:${ex.id}`);
           audit(db, WHO, 'admin_store_update', null, null, { code, password_changed: true });
         });
@@ -103,8 +103,8 @@ async function run(db, io, opts) {
       if (!dname) { io.out('  ✗ 姓名不可空白，略過這一位（請重跑工具）'); sum.skipped.push(username); continue; }
       const pw = await askPassword(io, username);
       db.tx(() => {
-        uid = Number(db.prepare('INSERT INTO users (username, role, brand_id, name, pass_hash, active) VALUES (?,?,?,?,?,1)')
-          .run(username, p.role, p.brands[0] || null, dname, hashPassword(pw)).lastInsertRowid);
+        uid = Number(db.prepare('INSERT INTO users (username, role, brand_id, name, pass_hash, active, must_change_password) VALUES (?,?,?,?,?,1,?)')
+          .run(username, p.role, p.brands[0] || null, dname, hashPassword(pw), p.role === 'admin' ? 0 : 1).lastInsertRowid);
         p.brands.forEach((b) => db.prepare('INSERT INTO user_brands (user_id, brand_id) VALUES (?,?)').run(uid, b));
         audit(db, WHO, 'admin_user_create', null, null, { username, name: dname, role: p.role, brand_ids: p.brands });
       });
@@ -114,7 +114,7 @@ async function run(db, io, opts) {
       if (await yes(io, `  ${username} 已存在，要重設密碼嗎？`)) {
         const pw = await askPassword(io, username);
         db.tx(() => {
-          db.prepare('UPDATE users SET pass_hash = ?, fail_count = 0, locked_until = NULL WHERE id = ?').run(hashPassword(pw), uid);
+          db.prepare('UPDATE users SET pass_hash = ?, must_change_password = ?, fail_count = 0, locked_until = NULL WHERE id = ?').run(hashPassword(pw), p.role === 'admin' ? 0 : 1, uid);
           db.prepare('DELETE FROM sessions WHERE who = ?').run(`user:${uid}`);
           audit(db, WHO, 'admin_user_update', null, null, { username, password_changed: true });
         });

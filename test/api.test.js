@@ -19,7 +19,7 @@ test('健康檢查、資料表數量、重啟不重建', async () => {
     const { openDb } = require('../server/db');
     const again = openDb(t.dir);                                    // 同一資料夾再開一次：資料還在
     assert.strictEqual(again.prepare('SELECT COUNT(*) c FROM stores').get().c, 3);
-    assert.strictEqual(again.prepare('PRAGMA user_version').get().user_version, 7);
+    assert.strictEqual(again.prepare('PRAGMA user_version').get().user_version, 8);
     again.close();
     assert.ok((await t.call('GET', '/nope')).error === 'NOT_FOUND');
   } finally { await t.close(); }

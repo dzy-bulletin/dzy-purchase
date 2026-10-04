@@ -35,6 +35,7 @@ var API = (function () {
       clearSession();
       if (typeof API.onUnauthorized === 'function') API.onUnauthorized();
     }
+    if (j && j.error === 'PASSWORD_CHANGE_REQUIRED' && typeof API.onPasswordRequired === 'function') API.onPasswordRequired();
     if (!j || j.ok !== true) {
       throw ApiError((j && j.error) || 'INTERNAL', (j && j.message) || ('伺服器錯誤 ' + res.status), res.status, j);
     }
@@ -46,10 +47,16 @@ var API = (function () {
     setSession(d);   // 假設 data = {token, role, name, brand, store_id}
     return d;
   }
-  function logout() { clearSession(); }
+  /* 自己改密碼：成功後換新 token（舊 session 已作廢）、旗標清掉 */
+  async function changePassword(oldPw, newPw) {
+    var d = await call('/password', { method: 'POST', body: { old_password: oldPw, new_password: newPw }, noAuthRedirect: true });
+    var s = session(); if (s) setSession(Object.assign({}, s, { token: d.token, expires_at: d.expires_at, must_change_password: false }));
+    return d;
+  }
+  function logout() { var s = session(); clearSession(); if (s && s.token) { try { fetch(CFG.API_BASE + '/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + s.token } }).catch(function () {}); } catch (e) {} } }
   function update(patch) { var s = session(); if (s) setSession(Object.assign({}, s, patch)); }
 
-  return { call: call, login: login, logout: logout, update: update, session: session, onUnauthorized: null };
+  return { call: call, login: login, changePassword: changePassword, onPasswordRequired: null, logout: logout, update: update, session: session, onUnauthorized: null };
 })();
 
 /* 伺服器存 UTC（ISO），畫面一律顯示台灣時間 YYYY-MM-DD HH:mm */

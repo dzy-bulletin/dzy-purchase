@@ -78,7 +78,12 @@ const MIGRATIONS = [
   // v7（P4 契約補充）：會計可管多個品牌。user_brands＝會計有權的品牌；users.brand_id 保留為預設品牌；sessions.brand_id＝這次登入「目前品牌」
   `CREATE TABLE user_brands (user_id INTEGER NOT NULL REFERENCES users(id), brand_id TEXT NOT NULL REFERENCES brands(id), PRIMARY KEY (user_id, brand_id));
    ALTER TABLE sessions ADD COLUMN brand_id TEXT;
-   INSERT INTO user_brands (user_id, brand_id) SELECT id, brand_id FROM users WHERE role = 'accountant' AND brand_id IS NOT NULL;`
+   INSERT INTO user_brands (user_id, brand_id) SELECT id, brand_id FROM users WHERE role = 'accountant' AND brand_id IS NOT NULL;`,
+  // v8（首次登入強制改密碼，Eason 2026-10-04）：帳號由管理者開、密碼由使用者自己設。既有門市與會計＝1、admin＝0
+  `ALTER TABLE stores ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;
+   UPDATE stores SET must_change_password = 1;
+   UPDATE users SET must_change_password = CASE WHEN role = 'admin' THEN 0 ELSE 1 END;`
 ];
 
 function openDb(dataDir) {
