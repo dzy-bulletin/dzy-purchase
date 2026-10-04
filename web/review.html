@@ -34,13 +34,13 @@
   .lside .item.sel{background:var(--panel);border-left-color:var(--red)}
   .dot{width:7px;height:7px;border-radius:50%;background:var(--red);display:inline-block;flex:none}
   .work{flex:1;display:flex;min-width:0;min-height:0}
-  .photo{width:clamp(170px,17vw,360px);min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--line);padding:1rem;gap:.6rem}
+  .photo{width:max(520px,calc((100vw - 56px) * .41));flex:none;min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--line);padding:1rem;gap:.6rem}
   .viewer{flex:1;overflow:hidden;position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--card);cursor:grab;touch-action:none}
   .viewer.drag{cursor:grabbing}
   .viewer img{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;user-select:none;-webkit-user-drag:none}
   .vtools{display:flex;gap:.4rem;flex-wrap:wrap}
   .vtools button{min-height:44px;padding:0 .8rem;font-size:.85rem}
-  .detail{flex:1;overflow:auto;padding:1.2rem 1rem;min-width:0}
+  .detail{flex:1;overflow:auto;padding:1.2rem .8rem;min-width:0}
   .head{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.8rem;margin-top:.8rem}
   .head .wide{grid-column:1/-1}
   .why{font-size:.8rem;margin-top:.15rem}
@@ -50,16 +50,16 @@
   .actions{position:sticky;bottom:0;background:var(--bg);padding:.7rem 0;display:flex;gap:.6rem;flex-wrap:wrap;border-top:1px solid var(--line);align-items:center}
   .hand{background:var(--yellow-bg);color:var(--yellow-t);padding:.5rem .7rem;margin:.5rem 0;border:1px solid var(--yellow);border-radius:var(--radius)}
   #lines td input{min-height:40px;padding:0 .35rem}
-  #lines td.num input{text-align:right;min-width:48px;width:100%}
-  #lines th,#lines td{padding-left:.3rem;padding-right:.3rem}
+  #lines td.num input{text-align:right;min-width:44px;width:100%}
+  #lines th,#lines td{padding-left:.2rem;padding-right:.2rem}
   #lines td.del{width:36px;padding-left:0;padding-right:.2rem}
   #lines td.del button{min-width:32px;padding:0}
   #lines td.chk{width:44px;text-align:center}
   #lines td.chk input{width:22px;height:22px}
   #lines th.chk{text-align:center}
-  td input[data-k=unit]{min-width:40px;width:100%}
-  td input[data-k=raw_name]{min-width:70px;width:100%}
-  .pk{position:relative;min-width:100px}
+  td input[data-k=unit]{min-width:36px;width:100%}
+  td input[data-k=raw_name]{min-width:56px;width:100%}
+  .pk{position:relative;min-width:84px}
   .pk .sug{display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.25rem}
   .pk .sug button{min-height:32px;padding:0 .6rem;font-size:.8rem;border-style:dashed}
   .pk .dd{position:fixed;z-index:30;background:var(--surface);border:1px solid var(--mute);max-height:240px;overflow:auto;border-radius:var(--radius)}
@@ -69,8 +69,8 @@
   .pk .dd small{color:var(--sub)}
   .ov{position:fixed;inset:0;background:rgba(44,42,41,.35);display:flex;align-items:center;justify-content:center;z-index:50;padding:1rem}
   .ov .box{background:var(--surface);border:1px solid var(--line);border-radius:var(--card);padding:1.2rem;width:100%;max-width:400px}
-  @media (max-width:1100px){.lside{width:180px}}
-  @media (max-width:860px){body{overflow:auto;height:auto}#shell{flex:none}.main,.work{flex-direction:column}.lside{width:auto;border-right:0;border-bottom:1px solid var(--line);max-height:220px}.photo{width:auto;min-height:300px;border-right:0}.head{grid-template-columns:1fr 1fr}}
+  @media (max-width:1400px){.lside{width:180px}}
+  @media (max-width:860px){body{overflow:auto;height:auto}#shell{flex:none}.main,.work{flex-direction:column}.lside{width:auto;border-right:0;border-bottom:1px solid var(--line);max-height:220px}.photo{width:auto;flex:none;min-height:300px;border-right:0}.head{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>

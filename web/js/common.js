@@ -57,7 +57,7 @@ var Common = (function () {
     var groups = NAV_GROUPS.map(function (g) {
       var items = g.items.filter(function (i) { return i[3] !== 'admin' || s.role === 'admin'; }).map(function (i) {
         var cnt = g.label === '核對' ? '<span class="cnt" data-cnt="' + i[1] + '"></span>' : '';
-        return '<a href="' + i[0] + '#' + i[1] + '" data-page="' + i[0] + '" data-key="' + i[1] + '"><span class="tx">' + i[2] + '</span>' + cnt + '</a>';
+        return '<a href="' + i[0] + '#' + i[1] + '" data-page="' + i[0] + '" data-key="' + i[1] + '" title="' + i[2] + '"><span class="ic" aria-hidden="true">' + esc(String(i[2]).charAt(0)) + '</span><span class="tx">' + i[2] + '</span>' + cnt + '</a>';
       }).join('');
       return '<div class="sgrp" role="group" aria-label="' + g.label + '"><div class="slabel">' + g.label + '</div>' + items + '</div>';
     }).join('');
@@ -65,8 +65,8 @@ var Common = (function () {
     if (s.role === 'accountant' && (s.brands || []).length > 1) {      // 多品牌會計：側欄上方品牌切換（單品牌不顯示）
       picker = '<label class="spick">目前品牌<select id="brandSwitch">' + s.brands.map(function (b) { return '<option value="' + esc(b.id) + '"' + (s.brand_id === b.id ? ' selected' : '') + '>' + esc(b.name || BRAND_NAME[b.id] || b.id) + '</option>'; }).join('') + '</select></label>';
     }
-    return picker + '<nav id="snav" aria-label="主選單">' + groups + '</nav>' +
-      '<div class="suser"><div class="who"><div class="nm">' + esc(s.name || '') + '</div><div class="rl">' + esc(ROLE_TEXT[s.role] || s.role) + '</div></div><button id="chpw" type="button">改密碼</button><button id="logout" type="button">登出</button></div>';
+    return '<div id="sidein"><div id="sidew">' + picker + '<nav id="snav" aria-label="主選單">' + groups + '</nav>' +
+      '<div class="suser"><div class="who"><div class="nm">' + esc(s.name || '') + '</div><div class="rl">' + esc(ROLE_TEXT[s.role] || s.role) + '</div></div><button id="chpw" type="button">改密碼</button><button id="logout" type="button">登出</button></div></div></div>';
   }
 
   function headerHTML(o, s) {

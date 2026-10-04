@@ -50,20 +50,31 @@ a{color:var(--ink);text-underline-offset:3px}
 .hdr .hout:hover:not(:disabled){border-color:currentColor;background:rgba(255,255,255,.18)}
 .hdr button:focus-visible{outline-color:var(--brand-ink)}
 
-/* 左側側欄（核對／報表／設定頁）：淺色底、選中＝白底＋左側 3px 品牌色線 */
+/* 左側側欄（核對／報表／設定頁）：淺色底、選中＝白底＋左側 3px 品牌色線。
+   桌機（寬>=861 且有滑鼠）：預設收成 56px 窄條（每項只顯示首字），滑鼠移入／鍵盤 Tab 進入就疊在內容上展開，移出 300ms 後收回。
+   觸控裝置或寬<=860：維持頂部橫向捲動列（見下方 media）。 */
 #shell{display:flex;align-items:stretch;min-width:0}
 #shell>#app{flex:1;min-width:0}
-#side{width:232px;flex:none;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;position:sticky;top:var(--hh);height:calc(100vh - var(--hh));align-self:flex-start;overflow-y:auto}
+#side{width:56px;flex:none;position:sticky;top:var(--hh);height:calc(100vh - var(--hh));align-self:flex-start;z-index:15}
+#sidein{position:absolute;left:0;top:0;bottom:0;width:56px;overflow:hidden;background:var(--panel);border-right:1px solid var(--line);transition:width .18s ease .3s,box-shadow .18s ease .3s}
+#side:hover #sidein,#side:focus-within #sidein{width:232px;box-shadow:4px 0 14px rgba(44,42,41,.14);transition-delay:0s}
+#sidew{width:232px;height:100%;display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden}
+@media (prefers-reduced-motion:reduce){#sidein{transition:none}}
 #snav{padding:.4rem 0 1rem;flex:1}
 .sgrp{display:flex;flex-direction:column}
-.slabel{font-size:1.15rem;font-weight:700;letter-spacing:.04em;color:var(--ink);padding:1.2rem 1.25rem .4rem}
-#snav a{display:flex;align-items:center;justify-content:space-between;gap:.5rem;min-height:44px;padding:0 1.1rem 0 calc(1.25rem - 3px);border-left:3px solid transparent;color:#6F6A64;text-decoration:none;font-size:.95rem;font-weight:400}
+.sgrp+.sgrp{border-top:1px solid var(--line)}
+.slabel{font-size:1.15rem;font-weight:700;letter-spacing:.04em;color:var(--ink);padding:1.2rem 1rem .4rem;white-space:nowrap}
+#snav a{display:flex;align-items:center;justify-content:space-between;gap:.5rem;min-height:44px;padding:0 1.1rem 0 0;border-left:3px solid transparent;color:#6F6A64;text-decoration:none;font-size:.95rem;font-weight:400;white-space:nowrap}
+#snav a .ic{flex:none;width:53px;text-align:center;font-size:1rem;font-weight:600}
+#snav a .tx{flex:1;min-width:0}
 #snav a:hover{background:var(--faint);color:var(--ink)}
 #snav a[aria-current=page]{background:var(--surface);border-left-color:var(--brand);color:var(--ink);font-weight:600}
 #snav a:focus-visible{outline:2px solid var(--ink);outline-offset:-2px}
 #snav .cnt{font-family:var(--mono);font-size:.8rem;color:var(--mute)}
 #snav .cnt:empty{display:none}
 #snav a[data-key=review] .cnt{color:var(--yellow-t);font-weight:700}
+.spick,.suser{opacity:0;visibility:hidden;transition:opacity .15s ease}
+#side:hover .spick,#side:hover .suser,#side:focus-within .spick,#side:focus-within .suser{opacity:1;visibility:visible}
 .spick{display:flex;flex-direction:column;gap:.3rem;padding:1rem 1.25rem 0;font-size:.78rem;font-weight:500;color:var(--sub);letter-spacing:.04em}
 .spick select{font-size:.95rem;color:var(--ink)}
 .suser{border-top:1px solid var(--line);padding:.9rem 1.25rem;display:flex;flex-wrap:wrap;align-items:center;gap:.6rem}
@@ -71,20 +82,26 @@ a{color:var(--ink);text-underline-offset:3px}
 .suser .nm{font-size:.95rem;font-weight:600;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .suser .rl{font-size:.78rem;color:var(--sub)}
 .suser button{min-height:44px;font-size:.9rem;flex:1 1 0}
-@media (max-width:860px){
-  :root{--hh:56px}
+/* 頂部橫向捲動列：窄螢幕，或觸控／無滑鼠裝置（平板橫放也一樣） */
+@media (max-width:860px), not ((hover:hover) and (pointer:fine)){
   #shell{flex-direction:column}
-  #side{width:auto;height:auto;position:static;flex-direction:row;align-items:center;border-right:0;border-bottom:1px solid var(--line);overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
+  #side{width:auto;height:auto;position:static;display:flex;flex-direction:row;align-items:center;border-bottom:1px solid var(--line);background:var(--panel);overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;z-index:auto}
+  #sidein,#sidew{display:contents}
   #snav{display:flex;flex-direction:row;padding:0 .4rem;flex:none}
   .sgrp{flex-direction:row;align-items:center;flex:none}
-  .sgrp+.sgrp{border-left:1px solid var(--line);margin-left:.3rem;padding-left:.3rem}
+  .sgrp+.sgrp{border-top:0;border-left:1px solid var(--line);margin-left:.3rem;padding-left:.3rem}
   .slabel{display:none}
-  #snav a{white-space:nowrap;border-left:0;border-bottom:3px solid transparent;padding:0 .8rem}
+  #snav a{border-left:0;border-bottom:3px solid transparent;padding:0 .8rem}
+  #snav a .ic{display:none}
   #snav a[aria-current=page]{border-bottom-color:var(--brand)}
+  .spick,.suser{opacity:1;visibility:visible}
   .spick{flex-direction:row;align-items:center;padding:0 .6rem;flex:none;white-space:nowrap}
   .spick select{width:auto;min-height:44px}
   .suser{border-top:0;border-left:1px solid var(--line);flex:none;padding:0 .8rem}
   .suser .who{display:none}
+}
+@media (max-width:860px){
+  :root{--hh:56px}
 }
 
 .page{max-width:1100px;margin:0 auto;padding:1.4rem 2rem 4rem}
