@@ -88,6 +88,11 @@ var Common = (function () {
       '<div class="suser"><div class="who"><div class="av" aria-hidden="true">' + esc(nm.charAt(0) || '?') + '</div><div class="wt"><div class="nm">' + esc(nm) + '</div><div class="rl">' + esc(ROLE_TEXT[s.role] || s.role) + '</div></div></div><button id="chpw" type="button">改密碼</button><button id="logout" type="button">登出</button></div></div></div>';
   }
 
+  /* 操作教學連結：門市頁連 #store，其他頁連 #acc；新分頁開啟 */
+  function guideLink() {
+    return '<p class="guide-link" style="text-align:center;margin:1rem 0 0"><a href="guide.html#' + (window.PAGE_ROLE === 'store' ? 'store' : 'acc') + '" target="_blank" rel="noopener">第一次使用？看操作教學</a></p>';
+  }
+
   /* 深色頂條（上傳頁、登入／改密碼畫面）：品牌 logo＋標題；上傳頁登入後多放改密碼／登出 */
   function headerHTML(o, s) {
     return '<header class="hdr"><div class="logos"></div><span class="ttl">' + esc(o.title) + '</span>' +
@@ -123,7 +128,7 @@ var Common = (function () {
         '<label class="f" style="margin-top:.8rem">' + esc(o.accLabel || '帳號') + '<input id="acc" autocomplete="username" autocapitalize="none"></label>' +
         '<label class="f" style="margin-top:.8rem">密碼<input id="pw" type="password" autocomplete="current-password"></label>' +
         '<p class="muted" style="font-size:.85rem;margin:.4rem 0 0">' + esc(o.pwHint || '第一次使用的預設密碼是 000000，登入後系統會請你設定自己的新密碼。') + '</p>' +
-        '<div id="loginMsg"></div><button id="loginBtn" class="primary" type="button" style="width:100%;margin-top:1rem;min-height:48px">登入</button></div></div>';
+        '<div id="loginMsg"></div><button id="loginBtn" class="primary" type="button" style="width:100%;margin-top:1rem;min-height:48px">登入</button>' + guideLink() + '</div></div>';
       $('loginBtn').onclick = doLogin;
       $('pw').addEventListener('keydown', function (e) { if (e.key === 'Enter') doLogin(); });
     }
@@ -150,7 +155,7 @@ var Common = (function () {
         '<label class="f" style="margin-top:.8rem">新密碼<input id="pwNew" type="password" autocomplete="new-password"></label>' +
         '<label class="f" style="margin-top:.8rem">確認新密碼<input id="pwNew2" type="password" autocomplete="new-password"></label>' +
         '<div id="pwMsg"></div><button id="pwBtn" class="primary" type="button" style="width:100%;margin-top:1rem;min-height:48px">' + (forced ? '設定密碼並進入' : '儲存新密碼') + '</button>' +
-        (forced ? '<button id="pwOut" type="button" style="width:100%;margin-top:.6rem;min-height:44px">登出</button>' : '<button id="pwCancel" type="button" style="width:100%;margin-top:.6rem;min-height:44px">取消</button>') + '</div></div>';
+        (forced ? '<button id="pwOut" type="button" style="width:100%;margin-top:.6rem;min-height:44px">登出</button>' : '<button id="pwCancel" type="button" style="width:100%;margin-top:.6rem;min-height:44px">取消</button>') + guideLink() + '</div></div>';
       async function submit() {
         var a = $('pwOld').value, b = $('pwNew').value, c = $('pwNew2').value;
         var err = !a || !b ? '請輸入舊密碼與新密碼' : b.length < 6 ? '新密碼至少 6 個字' : b === a ? '新密碼不可與舊密碼相同' : b !== c ? '兩次輸入的新密碼不一樣' : '';

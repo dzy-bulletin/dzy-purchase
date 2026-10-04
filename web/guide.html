@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1b1917">
+<title>鼎兆元｜貨單辨識系統操作教學</title>
+<link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32.png">
+<link rel="apple-touch-icon" href="img/icon-180.png">
+<meta name="description" content="貨單辨識系統操作教學：門市拍照上傳、會計核對入帳、管理者設定，一步一步看圖操作。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<style>
+  body{overflow-x:hidden}
+  .gh{display:flex;align-items:center;gap:.8rem;padding:.55rem 1rem;min-height:64px;background:var(--sidebar);color:#fff}
+  .gh .txt{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:11px;background:#1F4E8C;color:#fff;font-size:12px;font-weight:900;flex:none}
+  .gh .ttl{font-size:1.1rem;font-weight:900;letter-spacing:.02em}
+  .gh .sub{font-size:.78rem;color:#a89e94;font-weight:700}
+  .gwrap{max-width:760px;margin:0 auto;padding:1rem 1rem 4rem}
+  .tabs{display:flex;gap:.5rem;margin:.2rem 0 1rem}
+  .tabs button{flex:1;min-height:48px;padding:0 .4rem;font-size:1rem}
+  .tabs button[aria-selected=true]{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
+  .panel[hidden]{display:none}
+  .panel>h2{font-size:1.15rem;margin:.2rem 0 .8rem}
+  .steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.8rem}
+  .step{background:var(--surface);border:1px solid var(--line);border-radius:var(--card);box-shadow:var(--shadow);padding:.9rem}
+  .sh{display:flex;gap:.7rem;align-items:flex-start}
+  .sh b{flex:none;min-width:34px;height:34px;padding:0 .4rem;border-radius:17px;background:var(--brand);color:var(--brand-ink);display:inline-flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:.9rem;font-weight:700}
+  .sh p{margin:0;font-weight:700;overflow-wrap:anywhere}
+  .note{margin:.6rem 0 0;font-size:.92rem;color:var(--sub);overflow-wrap:anywhere}
+  .figs{display:flex;flex-direction:column;gap:.6rem;margin-top:.7rem}
+  .figs:empty{display:none}
+  figure{margin:0;text-align:center}
+  figure img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:var(--radius);cursor:zoom-in;display:block;margin:0 auto}
+  .store-fig img{max-width:280px}
+  #p-store figure img{max-width:min(100%,280px)}
+  .faq{margin-top:2rem}
+  .faq h2{font-size:1.15rem;margin-bottom:.6rem}
+  details{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:0 .9rem;margin-bottom:.5rem}
+  summary{cursor:pointer;font-weight:800;min-height:48px;display:flex;align-items:center}
+  details p{margin:0 0 .8rem;color:var(--sub)}
+  #lb{position:fixed;inset:0;background:rgba(20,16,14,.88);z-index:100;display:flex;align-items:center;justify-content:center;padding:1rem;overflow:auto}
+  #lb[hidden]{display:none}
+  #lb img{max-width:100%;max-height:100%;border-radius:8px;background:#fff}
+  #lbx{position:fixed;top:.6rem;right:.6rem;min-width:48px;min-height:48px;background:#fff}
+</style>
+</head>
+<body>
+<header class="gh"><span class="txt">鼎兆元</span><div><div class="ttl">貨單辨識系統操作教學</div><div class="sub">選你的身分，照著做就好</div></div></header>
+<main class="gwrap">
+  <div class="tabs" role="tablist" aria-label="身分">
+    <button type="button" role="tab" data-tab="store" id="t-store">門市</button>
+    <button type="button" role="tab" data-tab="acc" id="t-acc">會計</button>
+    <button type="button" role="tab" data-tab="admin" id="t-admin">管理者</button>
+  </div>
+<section id="p-store" class="panel" hidden><h2>門市：拍貨單上傳</h2><ol class="steps">
+<li class="step"><div class="sh"><b>1</b><p>用手機打開網址，再加到主畫面，之後像 App 一樣一點就開。</p></div><p class="note">iPhone：用 Safari 打開，按下方「分享」，選「加入主畫面」。<br>Android：用 Chrome 打開，按右上角選單，選「加到主畫面」。</p><div class="figs"><figure><img src="img/guide/store-1-login.jpg" alt="門市登入畫面" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>2</b><p>登入：帳號輸入門市代號，密碼輸入預設密碼 000000。</p></div><p class="note">門市代號：CF、MDGF、MZTGF、MZTZS、MZTLZL。大小寫都可以。</p><div class="figs"><figure><img src="img/guide/store-2-login-filled.jpg" alt="填好門市代號與密碼" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>2-1</b><p>第一次登入會要求設定自己的新密碼，至少 6 個字。設好就能用了。</p></div><div class="figs"><figure><img src="img/guide/store-3-force-change.jpg" alt="第一次登入設定新密碼" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>3</b><p>收到貨後，先選廠商。</p></div><p class="note">找不到廠商，就選最下面的「找不到，手動輸入」。</p><div class="figs"><figure><img src="img/guide/store-4-main.jpg" alt="選廠商畫面" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>3-1</b><p>選「找不到，手動輸入」時，自己打廠商名稱。</p></div><div class="figs"><figure><img src="img/guide/store-6-manual.jpg" alt="手動輸入廠商名稱" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>3-2</b><p>按「拍照」拍貨單。長單可以拍好幾張，會算同一張貨單。拍好按「送出這張貨單」。</p></div><p class="note">照片要拍清楚、四個角都拍到、手指不要擋住。</p><div class="figs"><figure><img src="img/guide/store-5-photos.jpg" alt="已選兩張照片，準備送出" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>4</b><p>沒有網路也沒關係。照片會先存在手機，畫面會寫「N 張待送」。</p></div><p class="note">手機一有網路，會自己補傳，不用重拍。</p><div class="figs"><figure><img src="img/guide/store-7-offline.jpg" alt="離線時顯示一張待送" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>4-1</b><p>傳好之後，畫面會寫「已送出」。</p></div><div class="figs"><figure><img src="img/guide/store-8-sent.jpg" alt="已送出一張貨單" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>5</b><p>在「我的上傳」看每張貨單的狀態。</p></div><p class="note"><b>辨識中</b>：電腦正在讀，約 1 到 3 分鐘。<br><b>待核對</b>：等會計核對。<br><b>已入帳</b>：完成了。<br><b>退回重拍</b>：照紅字寫的原因，重拍一次再送。</p><div class="figs"><figure><img src="img/guide/store-9-status.jpg" alt="我的上傳狀態清單" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>6</b><p>要改密碼：按右上角「改密碼」。</p></div><p class="note">忘記密碼，請找管理者幫你重設。重設後密碼是 000000，登入後再改成自己的。</p><div class="figs"><figure><img src="img/guide/store-10-chpw.jpg" alt="改密碼畫面" loading="lazy" tabindex="0" role="button"></figure></div></li>
+</ol></section>
+<section id="p-acc" class="panel" hidden><h2>會計：核對與入帳</h2><ol class="steps">
+<li class="step"><div class="sh"><b>1</b><p>登入：帳號加預設密碼 000000，第一次登入要改成自己的密碼。</p></div><p class="note">管兩個品牌的人，登入後在側欄最上方切換品牌。</p><div class="figs"><figure><img src="img/guide/acc-1-login.jpg" alt="會計登入畫面" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>2</b><p>把滑鼠移到畫面最左邊，側欄會展開。分三區：核對、報表、設定。</p></div><p class="note">側欄數字是各狀態的張數。</p><div class="figs"><figure><img src="img/guide/acc-2-sidebar.jpg" alt="展開的側欄" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>3</b><p>核對頁分三欄。左邊選貨單，中間看照片，右邊是品項卡片。</p></div><p class="note">照片可以按「放大」「縮小」，或按「符合視窗」。</p><div class="figs"><figure><img src="img/guide/acc-3-review.jpg" alt="核對頁三欄畫面" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>4</b><p>看顏色。<b>紅色</b>是一定要處理，不處理不能入帳。<b>黃色</b>是提醒，看一下就好。</p></div><p class="note">紅字會用白話寫原因。常見修法：<br>1. 缺單價：照照片把單價補上。<br>2. 數量乘單價不等於金額：改成正確的數字。<br>3. 多讀了「合計」「稅額」這種列：按該列右上角的 ✕ 刪掉。</p><div class="figs"><figure><img src="img/guide/acc-4-flags.jpg" alt="紅色與黃色的品項卡片" loading="lazy" tabindex="0" role="button"></figure><figure><img src="img/guide/acc-5-fix.jpg" alt="多讀的合計列" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>5</b><p>統一品名：在欄位輸入關鍵字搜尋，或直接按「建議」的品名。</p></div><p class="note">找不到的品名，入帳時會自動建立，之後再補分類（見設定）。</p>XX<p>稅額：如果這家廠商的品項金額本來就含稅，請勾「品項金額已含稅」。</p></div><p class="note">勾過一次，系統會記住這家廠商，下次自動帶出。</p><div class="figs"><figure><img src="img/guide/acc-7-tax.jpg" alt="稅額與已含稅勾選" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>7</b><p>每一列核對好就勾「確認」。全部勾好、沒有紅色，就能按「入帳」。</p></div><p class="note">如果有新的廠商或品項，入帳前會跳出視窗請你確認。</p><div class="figs"><figure><img src="img/guide/acc-8-confirm.jpg" alt="全部勾好後，入帳按鈕亮起" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>8</b><p>處理特殊狀況。</p></div><p class="note"><b>退回重拍</b>：照片不清楚時按它，寫上原因，門市會看到。<br><b>取消入帳</b>：到「已入帳」選那張，按「取消入帳」，就會回到待核對。<br><b>辨識失敗</b>：按「重新辨識」再讀一次，或自己手動補。</p><div class="figs"><figure><img src="img/guide/acc-10-returned.jpg" alt="退回的貨單" loading="lazy" tabindex="0" role="button"></figure><figure><img src="img/guide/acc-9-confirmed.jpg" alt="已入帳的貨單" loading="lazy" tabindex="0" role="button"></figure><figure><img src="img/guide/acc-11-failed.jpg" alt="辨識失敗的貨單" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>9</b><p>報表：左側「報表」有四頁。</p></div><p class="note"><b>食材成本</b>：這個月進貨花多少。<br><b>單價走勢</b>：同一品項的價格變化。<br><b>每日進貨</b>：每天進了多少。<br><b>價格變動提醒</b>：▲ 是漲、▼ 是跌。<br>食材成本頁右上角可以「下載會計格式 Excel」。</p><div class="figs"><figure><img src="img/guide/rep-1-cost.jpg" alt="食材成本" loading="lazy" tabindex="0" role="button"></figure><figure><img src="img/guide/rep-2-price.jpg" alt="單價走勢" loading="lazy" tabindex="0" role="button"></figure><figure><img src="img/guide/rep-3-daily.jpg" alt="每日進貨" loading="lazy" tabindex="0" role="button"></figure><figure><img src="img/guide/rep-4-alerts.jpg" alt="價格變動提醒" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>10</b><p>設定：補品項分類、看廠商。</p></div><p class="note">自動建立的品項會標「待補分類」，請補上類別和統一單位。廠商頁可以看廠商名單。</p><div class="figs"><figure><img src="img/guide/set-1-items.jpg" alt="品項待補分類" loading="lazy" tabindex="0" role="button"></figure><figure><img src="img/guide/set-2-vendors.jpg" alt="廠商清單" loading="lazy" tabindex="0" role="button"></figure></div></li>
+</ol></section>
+<section id="p-admin" class="panel" hidden><h2>管理者：帳號與設定</h2><ol class="steps">
+<li class="step"><div class="sh"><b>1</b><p>「門市」頁：新增門市、改名稱、重設門市密碼、停用門市。</p></div><p class="note">要重設密碼：按該門市的「編輯」，在密碼欄填 000000，再存檔。門市下次登入會被要求改成自己的密碼。</p><div class="figs"><figure><img src="img/guide/adm-1-stores.jpg" alt="門市清單" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>2</b><p>「帳號」頁：新增會計或管理者帳號、重設密碼、停用帳號。</p></div><p class="note">一個會計要管兩個品牌，就在帳號裡把兩個品牌都勾起來，他登入後就能切換。</p><div class="figs"><figure><img src="img/guide/adm-2-users.jpg" alt="帳號清單" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>3</b><p>「損益對照」頁：設定每家廠商、每個類別，要記到損益系統的哪個科目。</p></div><p class="note">沒對到科目的金額，會列在下面的「待補對照」，補好才會送出。如果有月份被拒收或已定稿，處理好之後用「重推此店此月」再送一次。</p><div class="figs"><figure><img src="img/guide/adm-3-pnl.jpg" alt="損益對照畫面" loading="lazy" tabindex="0" role="button"></figure></div></li>
+<li class="step"><div class="sh"><b>4</b><p>健康狀態燈號：綠燈是正常，黃燈是提醒，紅燈要馬上處理。</p></div><p class="note"><b>紅燈</b>：辨識服務沒回應、貨單排隊超過 30 分鐘、備份超過 26 小時沒成功、損益推送失敗超過 1 小時。<br><b>黃燈</b>：有待補對照的金額、有辨識失敗的貨單、損益推送未設定或被拒收。<br>紅燈請聯絡資訊部。</p><div class="figs"><figure><img src="img/guide/adm-3-pnl.jpg" alt="損益對照與待補對照" loading="lazy" tabindex="0" role="button"></figure></div></li>
+</ol></section>
+<section id="faq" class="faq"><h2>常見問題</h2>
+<details><summary>登不進去怎麼辦？</summary><p>先確認帳號對不對（門市要用門市代號）。預設密碼是 000000，改過就要用自己改的新密碼。密碼連續輸錯會暫時鎖住，請等一下再試，或找管理者重設。</p></details>
+<details><summary>拍完照，辨識要多久？</summary><p>約 1 到 3 分鐘。狀態會從「辨識中」變成「待核對」，不用重複上傳。</p></details>
+<details><summary>單子一直是紅色，不能入帳？</summary><p>看紅字白話說明。最常見是缺單價、數量乘單價不等於金額、或多讀了「合計」「稅額」列。修好之後紅色就會消失。</p></details>
+<details><summary>門市看不到某家廠商？</summary><p>先選「找不到，手動輸入」直接打名稱。會計入帳時，系統會自動建立這家廠商，下次就選得到。</p></details>
+<details><summary>價格變動提醒是什麼意思？</summary><p>入帳時，系統會拿同一品項跟上一次進貨的單價比。▲ 代表變貴，▼ 代表變便宜，幫你發現漲價。不是錯誤，看一下就好。</p></details>
+</section>
+</main>
+<div id="lb" hidden><button id="lbx" type="button" aria-label="關閉">✕</button><img alt=""></div>
+<script>
+'use strict';
+(function () {
+  var TABS = ['store', 'acc', 'admin'];
+  function show(k) {
+    if (TABS.indexOf(k) < 0) k = 'store';
+    TABS.forEach(function (t) {
+      document.getElementById('p-' + t).hidden = t !== k;
+      document.getElementById('t-' + t).setAttribute('aria-selected', t === k ? 'true' : 'false');
+    });
+  }
+  TABS.forEach(function (t) {
+    document.getElementById('t-' + t).onclick = function () { show(t); try { history.replaceState(null, '', '#' + t); } catch (e) { location.hash = t; } };
+  });
+  window.addEventListener('hashchange', function () { show((location.hash || '').slice(1)); });
+  show((location.hash || '').slice(1));
+  var lb = document.getElementById('lb'), li = lb.querySelector('img');
+  function open(img) { li.src = img.src; li.alt = img.alt; lb.hidden = false; }
+  function close() { lb.hidden = true; li.removeAttribute('src'); }
+  document.addEventListener('click', function (e) { var t = e.target; if (t.tagName === 'IMG' && t.closest('figure')) open(t); else if (t === lb || t.id === 'lbx') close(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') close();
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.tagName === 'IMG' && e.target.closest('figure')) { e.preventDefault(); open(e.target); }
+  });
+})();
+</script>
+</body>
+</html>
