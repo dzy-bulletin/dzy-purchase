@@ -457,7 +457,7 @@ EOF
 **B3　Google 備份（Apps Script）**：照 `~/dzy-purchase/gas/README.md` 的步驟 1～6 做（用 **madesiaosinla** 帳號；建立專案、貼 `gas/Code.js` 與 `gas/appsscript.json`、**執行 `setup` 並授權**、設指令碼屬性 `BACKUP_KEY`、**部署為網頁應用程式**〔執行身分「我」、存取權「所有人」〕並複製 `/exec` 網址）。其中 `BACKUP_KEY` 這樣產生（金鑰只存在 shell 變數、同時寫進 `.env` 並放進剪貼簿，**畫面上不會出現**；指令只印一個數字，`1`＝寫進 `.env` 成功）：
 
 ```sh
-K=$(openssl rand -hex 32); E="$HOME/dzy-purchase/server/.env"; sed -i '' '/^BACKUP_KEY=/d' "$E"; printf 'BACKUP_KEY=%s\n' "$K" >> "$E"; printf '%s' "$K" | pbcopy; unset K; grep -c '^BACKUP_KEY=[0-9a-f]\{64\}$' "$E"
+K=$(openssl rand -hex 32); E="$HOME/dzy-purchase/server/.env"; sed -i '' '/^BACKUP_KEY=/d' "$E"; printf 'BACKUP_KEY=%s\n' "$K" >> "$E"; printf '%s' "$K" | pbcopy; unset K; grep -cE '^BACKUP_KEY=([0-9a-f]{64}|[A-Za-z0-9+/]{43}=)$' "$E"
 ```
 
 1. 貼上並執行這一行（印 `1`）。**這之間不要再從對話複製任何東西。**
@@ -494,7 +494,7 @@ echo "第 7 步 備份：$(cat "$DATA/logs/backup-last.json")／$(date '+%F %T')
 `.env` 的檢查交給 Eason（B2 生效後一律由 Eason 在終端機執行，見禁令第 5 條）：請他在終端機執行下面這段、**只回報四個數字與權限欄**（不印金鑰）：
 
 ```sh
-E="$HOME/dzy-purchase/server/.env"; ls -l "$E" | cut -c1-10; grep -c '^BACKUP_KEY=[0-9a-f]\{64\}$' "$E"; grep -c '^BACKUP_URL=https://.*/exec$' "$E"; grep -c '^MODEL=.' "$E"; git -C "$HOME/dzy-purchase" status --porcelain | grep -c '\.env'
+E="$HOME/dzy-purchase/server/.env"; ls -l "$E" | cut -c1-10; grep -cE '^BACKUP_KEY=([0-9a-f]{64}|[A-Za-z0-9+/]{43}=)$' "$E"; grep -c '^BACKUP_URL=https://.*/exec$' "$E"; grep -c '^MODEL=.' "$E"; git -C "$HOME/dzy-purchase" status --porcelain | grep -c '\.env'
 ```
 
 期望依序：`-rw-------`、`1`、`1`、`1`、`0`。Claude 把 Eason 回報的數字寫進證據檔（註明「Eason 在終端機執行」）。
@@ -596,7 +596,7 @@ ls ~/Library/LaunchAgents/com.dzy.bulletin* /Library/LaunchDaemons/com.dzy.bulle
 
 ```sh
 E="$HOME/dzy-purchase/server/.env"; DATA="$HOME/dzy-purchase-data"
-[ "$(grep -c '^BACKUP_KEY=[0-9a-f]\{64\}$' "$E")" = 1 ] && grep -rl "$(sed -n 's/^BACKUP_KEY=//p' "$E" | tr -d "\"'" | cut -c1-8)" ~/.claude/projects/ "$DATA/logs" 2>/dev/null | wc -l
+[ "$(grep -cE '^BACKUP_KEY=([0-9a-f]{64}|[A-Za-z0-9+/]{43}=)$' "$E")" = 1 ] && grep -rl "$(sed -n 's/^BACKUP_KEY=//p' "$E" | tr -d "\"'" | cut -c1-8)" ~/.claude/projects/ "$DATA/logs" 2>/dev/null | wc -l
 ```
 
 回 `0`＝沒外洩。非 0 → 再用 12 碼複查一次（把 `cut -c1-8` 改 `cut -c1-12`）；仍非 0 → **不要打開命中的檔案**，Eason 重做 B3 的金鑰（Apps Script 屬性＋`.env`），重起伺服器。
