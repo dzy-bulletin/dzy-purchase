@@ -8,3 +8,8 @@ node_modules/
 .DS_Store
 logs/
 gas/.clasp.json
+
+# e2e 測試產物
+e2e/artifacts/
+e2e/.venv/
+e2e/__pycache__/

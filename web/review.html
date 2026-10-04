@@ -405,7 +405,7 @@ function update() {
 /* ---------- 動作 ---------- */
 function buildActions() {
   var a = $('actions'), st = cur.status;
-  if (st === 'confirmed') { a.innerHTML = '<button id="unconfirmBtn" class="warn">取消入帳</button>'; $('unconfirmBtn').onclick = doUnconfirm; return; }
+  if (st === 'confirmed') { a.innerHTML = '<button id="unconfirmBtn" class="warn">取消入帳</button><span id="actMsg" class="grow"></span>'; $('unconfirmBtn').onclick = doUnconfirm; return; }
   if (st === 'returned') { a.innerHTML = '<button id="reopenBtn" class="warn">重新開放（回到待核對）</button><span id="actMsg" class="grow"></span>'; $('reopenBtn').onclick = doReopen; return; }
   a.innerHTML = '<button id="saveBtn">儲存</button><button id="confirmBtn" class="good" disabled>入帳</button><button id="returnBtn" class="warn">退回重拍</button><span id="actMsg" class="grow"></span>';
   $('saveBtn').onclick = function () { save().then(function (ok) { if (ok) say('已儲存', 'ok'); }); };
