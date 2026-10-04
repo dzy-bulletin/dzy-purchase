@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#FBFBF9">
+<meta name="theme-color" content="#1b1917">
 <title>報表｜貨單辨識系統</title>
 <meta name="description" content="鼎兆元貨單辨識系統｜當月食材成本、品項單價走勢與價格變動提醒。">
 <meta property="og:type" content="website">
@@ -16,19 +16,17 @@
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&family=Space+Mono:wght@400;700&family=Noto+Sans+TC:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <style>
   .filters{display:flex;gap:.8rem;flex-wrap:wrap;align-items:end;margin-bottom:1rem}
   .filters label{min-width:150px}
   .big{font-size:2.1rem;font-weight:700;letter-spacing:-.02em;line-height:1.3}
   .lead{font-size:.78rem;font-weight:500;color:var(--sub)}
-  .filters{padding-bottom:1rem;border-bottom:1px solid var(--line)}
+  .filters{padding:.9rem 1.2rem;background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--brand);border-radius:14px;box-shadow:var(--shadow)}
   .filters label{flex-direction:row;align-items:center;gap:.5rem}
   .filters input,.filters select{min-height:40px;width:auto}
-  .filters button.primary{background:var(--bg);color:var(--ink);border-color:var(--line)}
-  .filters button.primary:hover:not(:disabled){background:var(--bg);border-color:var(--mute)}
-  .tbl{border:1px solid var(--line);border-radius:var(--card);background:var(--surface);overflow:hidden;margin:.9rem 0}
+  .tbl{border:1px solid var(--line);border-radius:16px;background:var(--surface);overflow:hidden;margin:.9rem 0;box-shadow:var(--shadow)}
   .tbl .hd{padding:.6rem 1rem;background:var(--panel);border-bottom:1px solid var(--line);font-size:.78rem;font-weight:500;color:var(--sub)}
   .cat{display:grid;grid-template-columns:1fr 8rem 4.5rem;gap:.8rem;align-items:center;padding:.65rem 1rem;border-bottom:1px solid var(--line)}
   .cat:last-child{border-bottom:0}
@@ -38,7 +36,7 @@
   .legend{display:flex;gap:1.2rem;flex-wrap:wrap;font-size:.85rem;margin:.4rem 0}
   .legend span{display:inline-flex;align-items:center;gap:.4rem}
   .legend svg{width:34px;height:10px}
-  .chart{width:100%;height:auto;display:block;background:var(--surface);border:1px solid var(--line);border-radius:var(--card)}
+  .chart{width:100%;height:auto;display:block;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}
   .chart text{font-family:var(--mono);font-size:11px;fill:var(--sub)}
   .up{color:var(--red-t);font-weight:600}
   .down{color:var(--green-t);font-weight:600}

@@ -536,12 +536,16 @@ test('#16 會計帶他牌 brand_id 打 /vendors（不論有沒有 all=1）一律
   } finally { await t.close(); }
 });
 
-test('#11／#15 前端：核對頁欄寬壓縮與 Escape 關閉新增品項視窗（靜態檢查；實機 1280 寬已另行量測）', () => {
+test('#11／#15 前端：核對頁卡片版面（.lcard）、明細區獨立捲動、底部入帳區 sticky，與 Escape 關閉新增品項視窗（靜態檢查）', () => {
   const rv = fs.readFileSync(path.join(__dirname, '..', 'web', 'review.html'), 'utf8');
   assert.ok(/key === 'Escape'/.test(rv) && /closeNew/.test(rv), 'openNewItem 有 Escape 處理');
-  assert.ok(/td\.del\{width:36px/.test(rv), '刪除鍵欄位縮成 36px');
+  assert.ok(/\.lcard\{/.test(rv) || /\.lcard\b/.test(rv), '品項以 .lcard 卡片上下排列');
+  assert.ok(/\.dscroll\{[^}]*overflow-y:auto/.test(rv) && /class="dscroll"/.test(rv), '明細區 .dscroll 可獨立捲動');
+  assert.ok(/\.dfoot\{[^}]*flex:none/.test(rv) && /\.dfoot\{position:sticky;bottom:0\}/.test(rv) && /class="dfoot"/.test(rv), '入帳按鈕所在 .dfoot 固定在底部（桌機 flex 釘底、窄螢幕 sticky）');
+  assert.ok(!/td\.del\{width:36px/.test(rv), '舊表格版面（刪除鍵欄 36px）已不存在');
   const ad = fs.readFileSync(path.join(__dirname, '..', 'web', 'admin.html'), 'utf8');
   assert.ok(/\['pnl', '損益對照'\]/.test(ad) && /待補對照/.test(ad) && /pnl_unit_code/.test(ad));
+  assert.ok(/needs_category/.test(ad) && /自動建立・待補分類/.test(ad) && /auto_created/.test(ad), '設定頁有待補分類與自動建立標籤');
 });
 
 

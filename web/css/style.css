@@ -1,146 +1,182 @@
-/* Linen & Ledger（Stitch「AI Smart Invoice System」設計系統，2026-10-04 取代「紙」版）。
-   圓角 4px（卡片 8px）、無陰影；Plus Jakarta Sans＋Noto Sans TC；數字／單號／日期用 Space Mono。
-   品牌只換 --bg（微染底色）與 --brand（頂端 3px 細線），由 js/theme.js 的 applyTheme() 設定。 */
+/* 貨單辨識系統樣式：比照薪資系統（payroll.html）——深色側欄、品牌色選中膠囊、白色圓角卡片、底色 #f6f4f1（2026-10-04 Eason 指示，取代 Linen）。
+   品牌只換 --brand（選中膠囊／強調）與 --brand-ink（膠囊上的字），由 js/theme.js 的 applyTheme() 設定。 */
 :root{
-  --bg:#FBFBF9; --brand:#2C2A29;
-  --panel:#F5F4F0; --surface:#FFFFFF; --line:#E6E4DD; --faint:#ECEAE3;
-  --ink:#2C2A29; --sub:#595652; --mute:#8C8881;
-  --green:#5A7854; --green-t:#3F5A3A; --green-bg:#F1F5EF;
-  --red:#B85D43; --red-t:#9A4A34; --red-bg:#FAF1ED;
-  --yellow:#C48E48; --yellow-t:#7A5524; --yellow-bg:#FBF6EE;
-  --accent:#3F5A3A; --button:#2C2A29; --button-ink:#FBFBF9;
-  --fs:16px; --radius:4px; --card:8px;
-  --sans:"Plus Jakarta Sans","Noto Sans TC",-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;
+  --bg:#f6f4f1; --brand:#FABE00; --brand-ink:#231815;
+  --sidebar:#1b1917; --sidebar-2:#2a2623; --sidebar-line:#332e2a; --side-txt:#b8afa5;
+  --panel:#faf7f3; --surface:#FFFFFF; --line:#ece7e1; --faint:#f3efea;
+  --ink:#231815; --sub:#6b6158; --mute:#94897f;
+  --green:#2f7d4f; --green-t:#256a42; --green-bg:#e7f3ec;
+  --red:#c0392b; --red-t:#a5301f; --red-bg:#fdf0ee;
+  --yellow:#d99a1e; --yellow-t:#8a5a00; --yellow-bg:#fff6df;
+  --accent:#256a42; --button:#231815; --button-ink:#FFFFFF;
+  --shadow:0 1px 2px rgba(35,24,21,.04),0 6px 20px rgba(35,24,21,.05);
+  --fs:16px; --radius:9px; --card:12px;
+  --sans:"Noto Sans TC","PingFang TC","Microsoft JhengHei",-apple-system,sans-serif;
   --mono:"Space Mono",ui-monospace,Menlo,monospace;
 }
 *{box-sizing:border-box}
 html,body{margin:0}
 body{background:var(--bg);color:var(--ink);font:400 var(--fs)/1.6 var(--sans);-webkit-text-size-adjust:100%}
-h1,h2,h3{font-family:var(--sans);font-weight:600;margin:0}
-h1{font-size:1.2rem}
-h2{font-size:.95rem;margin-bottom:.6rem}
-h3{font-size:.9rem;margin:1rem 0 .4rem}
+h1,h2,h3{font-family:var(--sans);font-weight:900;margin:0}
+h1{font-size:1.25rem}
+h2{font-size:1rem;margin-bottom:.6rem}
+h3{font-size:.92rem;margin:1rem 0 .4rem}
 button,input,select,textarea{font:inherit;color:inherit}
 input,select,textarea{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:0 .75rem;width:100%;min-height:44px}
 textarea{padding:.5rem .75rem}
 input[type=date],input[type=month],input[type=number],input[type=time]{font-family:var(--mono);font-size:.9em}
-input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--ink);outline-offset:1px}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--brand);outline-offset:-1px;border-color:var(--brand)}
+button:focus-visible,a:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 input[type=checkbox]{width:20px;height:20px;min-height:0;accent-color:var(--ink)}
-label.f{display:flex;flex-direction:column;gap:.35rem;font-size:.78rem;font-weight:500;color:var(--sub);letter-spacing:.04em}
-label.f input,label.f select{font-size:.95rem;color:var(--ink);letter-spacing:0;font-weight:400}
-button{min-height:44px;padding:0 1.1rem;border-radius:var(--radius);border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer;font-weight:500}
-button:hover:not(:disabled){border-color:var(--mute)}
-button.primary,button.good{background:var(--button);color:var(--button-ink);border-color:var(--button)}
-button.primary:hover:not(:disabled),button.good:hover:not(:disabled){border-color:var(--button);background:#44413F}
-button.warn{border-color:var(--red);color:var(--red-t);background:var(--surface)}
+label.f{display:flex;flex-direction:column;gap:.35rem;font-size:.8rem;font-weight:700;color:var(--mute)}
+label.f input,label.f select{font-size:.95rem;color:var(--ink);font-weight:400}
+button{min-height:44px;padding:0 1.1rem;border-radius:var(--radius);border:1px solid var(--line);background:#fff;color:var(--ink);cursor:pointer;font-weight:800}
+button:hover:not(:disabled){background:var(--panel);border-color:var(--mute)}
+button.primary{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
+button.primary:hover:not(:disabled){background:var(--brand);border-color:var(--ink);filter:brightness(.95)}
+button.good{background:var(--green);color:#fff;border-color:var(--green)}
+button.good:hover:not(:disabled){background:var(--green-t);border-color:var(--green-t)}
+button.warn{border-color:var(--red);color:var(--red-t);background:#fff}
 button.sm{min-height:36px;padding:0 .7rem;font-size:.85rem}
-button:disabled{opacity:.4;cursor:not-allowed}
+button:disabled{opacity:.45;cursor:not-allowed}
 a{color:var(--ink);text-underline-offset:3px}
 .mono,.num,td.n,.big{font-family:var(--mono);font-variant-numeric:tabular-nums}
 
-/* 頂端：整條品牌色標題列（--brand 底、--brand-ink 字；標題列內只放大字粗體）。見 js/theme.js */
-:root{--brand-ink:#FFFFFF; --hh:64px}
-#hdr{position:sticky;top:0;z-index:20}
-.hdr{display:flex;align-items:center;gap:.9rem;padding:.5rem 1.25rem;min-height:var(--hh);background:var(--brand);color:var(--brand-ink)}
-.hdr .ttl{font-size:1.15rem;font-weight:700;white-space:nowrap;letter-spacing:.04em;flex:1}
-.logos{display:flex;align-items:center;gap:.4rem}
-.logos img{height:40px;width:auto;display:block;border-radius:var(--radius);background:#fff;padding:3px}
-.logos .txt{font-size:1rem;font-weight:700;border-radius:var(--radius);background:#fff;color:var(--ink);padding:6px 10px}
-.hdr .hout{min-height:44px;font-size:1rem;font-weight:600;background:transparent;color:var(--brand-ink);border:1.5px solid currentColor}
-.hdr .hout:hover:not(:disabled){border-color:currentColor;background:rgba(255,255,255,.18)}
-.hdr button:focus-visible{outline-color:var(--brand-ink)}
+/* ── 側欄品牌區（共用）：圓角 logo 方塊＋品牌名＋英文副名 ── */
+:root{--hh:0px}
+.blogo{flex:none}
+.logos{display:flex;align-items:center;gap:6px}
+.logos .lg{width:40px;height:40px;border-radius:11px;flex:none;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.logos .lg img{width:100%;height:100%;object-fit:contain;display:block}
+.logos .lg-mala{background:#E94127;padding:5px;box-sizing:border-box}
+.logos .lg-mzt img{object-fit:cover}
+.logos .txt{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:11px;background:#1F4E8C;color:#fff;font-size:12px;font-weight:900;letter-spacing:0}
 
-/* 左側側欄（核對／報表／設定頁）：淺色底、選中＝白底＋左側 3px 品牌色線。
-   桌機（寬>=861 且有滑鼠）：預設收成 56px 窄條（每項只顯示首字），滑鼠移入／鍵盤 Tab 進入就疊在內容上展開，移出 300ms 後收回。
-   觸控裝置或寬<=860：維持頂部橫向捲動列（見下方 media）。 */
+/* ── 深色頂條：只給門市上傳頁與登入／改密碼畫面 ── */
+#hdr{position:sticky;top:0;z-index:20}
+.hdr{display:flex;align-items:center;gap:.9rem;padding:.55rem 1.25rem;min-height:64px;background:var(--sidebar);color:#fff}
+.hdr .ttl{font-size:1.15rem;font-weight:900;white-space:nowrap;letter-spacing:.02em;flex:1}
+.hdr .hout{min-height:44px;font-size:.95rem;font-weight:800;background:transparent;color:#e9e2da;border:1.5px solid #5a504a}
+.hdr .hout:hover:not(:disabled){background:var(--sidebar-2);border-color:#8a7f75}
+.hdr button:focus-visible{outline-color:#fff}
+
+/* ── 左側側欄（核對／報表／設定頁）：深色、品牌色實心膠囊選中。
+   桌機（寬>=861 且有滑鼠）：預設收成 64px 窄條（只顯示圖示），滑鼠移入／鍵盤聚焦就疊在內容上展開成 252px，移出 300ms 後收回。
+   觸控裝置或寬<=860：維持頂部橫向捲動列（同 payroll）。 ── */
 #shell{display:flex;align-items:stretch;min-width:0}
-#shell>#app{flex:1;min-width:0}
-#side{width:56px;flex:none;position:sticky;top:var(--hh);height:calc(100vh - var(--hh));align-self:flex-start;z-index:15}
-#sidein{position:absolute;left:0;top:0;bottom:0;width:56px;overflow:hidden;background:var(--panel);border-right:1px solid var(--line);transition:width .18s ease .3s,box-shadow .18s ease .3s}
-#side:hover #sidein,#side:focus-within #sidein{width:232px;box-shadow:4px 0 14px rgba(44,42,41,.14);transition-delay:0s}
-#sidew{width:232px;height:100%;display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden}
-@media (prefers-reduced-motion:reduce){#sidein{transition:none}}
-#snav{padding:.4rem 0 1rem;flex:1}
-.sgrp{display:flex;flex-direction:column}
-.sgrp+.sgrp{border-top:1px solid var(--line)}
-.slabel{font-size:1.15rem;font-weight:700;letter-spacing:.04em;color:var(--ink);padding:1.2rem 1rem .4rem;white-space:nowrap}
-#snav a{display:flex;align-items:center;justify-content:space-between;gap:.5rem;min-height:44px;padding:0 1.1rem 0 0;border-left:3px solid transparent;color:#6F6A64;text-decoration:none;font-size:.95rem;font-weight:400;white-space:nowrap}
-#snav a .ic{flex:none;width:53px;text-align:center;font-size:1rem;font-weight:600}
+#shell>#col{flex:1;min-width:0;display:flex;flex-direction:column}
+#side{width:64px;flex:none;position:sticky;top:0;height:100vh;align-self:flex-start;z-index:15}
+#sidein{position:absolute;left:0;top:0;bottom:0;width:64px;overflow:hidden;background:var(--sidebar);color:var(--side-txt);transition:width .18s ease .3s,box-shadow .18s ease .3s}
+#side:hover #sidein,#side:focus-within #sidein{width:252px;box-shadow:6px 0 24px rgba(0,0,0,.28);transition-delay:0s}
+#sidew{width:252px;height:100%;display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden}
+@media (prefers-reduced-motion:reduce){#sidein,.spick,.suser,#side:not(:hover):not(:focus-within) #snav a{width:48px;padding-right:0}
+#snav .tx,#snav .cnt,.brand>div:last-child{transition:none!important}}
+.brand{display:flex;align-items:center;gap:11px;padding:18px 12px 14px;white-space:nowrap}
+.brand .bt{font-size:16px;font-weight:900;color:#fff;line-height:1.15;letter-spacing:.01em}
+.brand .bs{font-size:12px;letter-spacing:.02em;color:#a89e94;font-weight:700;margin-top:2px;line-height:1.15}
+#side:not(:hover):not(:focus-within) .brand .logos .lg:nth-child(n+2){display:none}
+#side:not(:hover):not(:focus-within) #snav .tx,#side:not(:hover):not(:focus-within) #snav .cnt,#side:not(:hover):not(:focus-within) .brand>div:last-child{opacity:0}
+#snav .tx,#snav .cnt,.brand>div:last-child{transition:opacity .15s ease}
+#snav{padding:0 8px 10px;flex:1}
+.sgrp{display:flex;flex-direction:column;gap:2px}
+.slabel{font-size:19px;letter-spacing:.04em;color:#f3eee8;font-weight:900;padding:16px 14px 6px;white-space:nowrap}
+#snav a{display:flex;align-items:center;gap:13px;min-height:44px;padding:0 12px 0 13px;border-radius:11px;color:var(--side-txt);text-decoration:none;font-size:16.5px;font-weight:800;white-space:nowrap}
+#snav a .ic{flex:none;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center}
+#snav a .ic svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 #snav a .tx{flex:1;min-width:0}
-#snav a:hover{background:var(--faint);color:var(--ink)}
-#snav a[aria-current=page]{background:var(--surface);border-left-color:var(--brand);color:var(--ink);font-weight:600}
-#snav a:focus-visible{outline:2px solid var(--ink);outline-offset:-2px}
-#snav .cnt{font-family:var(--mono);font-size:.8rem;color:var(--mute)}
+#snav a:hover{background:var(--sidebar-2);color:#fff}
+#snav a[aria-current=page]{background:var(--brand);color:var(--brand-ink);font-weight:900;box-shadow:0 4px 12px rgba(0,0,0,.28)}
+#snav a:focus-visible{outline:2px solid #fff;outline-offset:-2px}
+#snav a[aria-current=page]:focus-visible{outline-color:var(--ink)}
+#snav .cnt{font-family:var(--mono);font-size:.8rem;font-weight:700;color:#8e8378}
 #snav .cnt:empty{display:none}
-#snav a[data-key=review] .cnt{color:var(--yellow-t);font-weight:700}
+#snav a[data-key=review] .cnt{color:var(--brand);font-weight:700}
+#snav a[aria-current=page] .cnt{color:var(--brand-ink)}
 .spick,.suser{opacity:0;visibility:hidden;transition:opacity .15s ease}
 #side:hover .spick,#side:hover .suser,#side:focus-within .spick,#side:focus-within .suser{opacity:1;visibility:visible}
-.spick{display:flex;flex-direction:column;gap:.3rem;padding:1rem 1.25rem 0;font-size:.78rem;font-weight:500;color:var(--sub);letter-spacing:.04em}
-.spick select{font-size:.95rem;color:var(--ink)}
-.suser{border-top:1px solid var(--line);padding:.9rem 1.25rem;display:flex;flex-wrap:wrap;align-items:center;gap:.6rem}
-.suser .who{flex:1 0 100%;display:flex;align-items:baseline;gap:.5rem;min-width:0}
-.suser .nm{font-size:.95rem;font-weight:600;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.suser .rl{font-size:.78rem;color:var(--sub)}
-.suser button{min-height:44px;font-size:.9rem;flex:1 1 0}
+.spick{display:flex;flex-direction:column;gap:.3rem;padding:4px 18px 4px;font-size:.78rem;font-weight:800;color:#7a6f65;letter-spacing:.08em}
+.spick select{font-size:.95rem;font-weight:700;color:#fff;background:var(--sidebar-2);border-color:var(--sidebar-line)}
+.spick select option{color:#231815;background:#fff}
+.suser{margin-top:auto;position:sticky;bottom:0;background:var(--sidebar);border-top:1px solid var(--sidebar-line);padding:14px 18px;display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.suser .who{flex:1 0 100%;display:flex;align-items:center;gap:10px;min-width:0}
+.suser .av{width:34px;height:34px;border-radius:50%;background:var(--sidebar-2);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900;color:#fff;flex:none}
+.suser .wt{min-width:0}
+.suser .nm{font-size:14px;font-weight:800;color:#fff;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.suser .rl{font-size:12px;color:#8e8378}
+.suser button{min-height:44px;font-size:.9rem;flex:1 1 0;background:var(--sidebar-2);color:#e9e2da;border:1px solid var(--sidebar-line)}
+.suser button:hover:not(:disabled){background:#3a3430;border-color:#5a504a}
+/* 頁面頂部大標題＋副標 */
+.topbar{padding:18px 28px 6px}
+.topbar h1{font-size:23px;font-weight:900;letter-spacing:-.01em;line-height:1.3}
+.topbar .sub{color:var(--mute);font-size:13px;margin-top:2px}
 /* 頂部橫向捲動列：窄螢幕，或觸控／無滑鼠裝置（平板橫放也一樣） */
 @media (max-width:860px), not ((hover:hover) and (pointer:fine)){
   #shell{flex-direction:column}
-  #side{width:auto;height:auto;position:static;display:flex;flex-direction:row;align-items:center;border-bottom:1px solid var(--line);background:var(--panel);overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;z-index:auto}
+  #side{width:auto;height:auto;position:static;display:flex;flex-direction:row;align-items:center;background:var(--sidebar);overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;z-index:auto}
   #sidein,#sidew{display:contents}
-  #snav{display:flex;flex-direction:row;padding:0 .4rem;flex:none}
+  #side:not(:hover):not(:focus-within) #snav a{width:auto;padding-right:12px}
+  #side:not(:hover):not(:focus-within) #snav .tx,#side:not(:hover):not(:focus-within) #snav .cnt,#side:not(:hover):not(:focus-within) .brand>div:last-child{opacity:1}
+  .brand{padding:10px 8px 10px 14px;flex:none}
+  .brand .bs{display:none}
+  .brand .logos .lg,.brand .logos .txt{width:36px;height:36px}
+  #side .brand .logos .lg:nth-child(n+2){display:flex!important}
+  #snav{display:flex;flex-direction:row;padding:0 6px;flex:none;gap:4px}
   .sgrp{flex-direction:row;align-items:center;flex:none}
-  .sgrp+.sgrp{border-top:0;border-left:1px solid var(--line);margin-left:.3rem;padding-left:.3rem}
+  .sgrp+.sgrp{border-left:1px solid var(--sidebar-line);margin-left:4px;padding-left:4px}
   .slabel{display:none}
-  #snav a{border-left:0;border-bottom:3px solid transparent;padding:0 .8rem}
-  #snav a .ic{display:none}
-  #snav a[aria-current=page]{border-bottom-color:var(--brand)}
-  .spick,.suser{opacity:1;visibility:visible}
+  #snav a{min-height:44px;padding:0 12px;font-size:15px;gap:8px}
+  .spick,.suser{opacity:1;visibility:visible;transition:none}
   .spick{flex-direction:row;align-items:center;padding:0 .6rem;flex:none;white-space:nowrap}
   .spick select{width:auto;min-height:44px}
-  .suser{border-top:0;border-left:1px solid var(--line);flex:none;padding:0 .8rem}
+  .suser{margin-top:0;position:static;background:none;border-top:0;border-left:1px solid var(--sidebar-line);flex:none;padding:0 .8rem;flex-wrap:nowrap}
   .suser .who{display:none}
-}
-@media (max-width:860px){
-  :root{--hh:56px}
+  .suser button{flex:none}
+  .topbar{padding:14px 16px 4px}
 }
 
-.page{max-width:1100px;margin:0 auto;padding:1.4rem 2rem 4rem}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--card);padding:1.1rem 1.25rem;margin:.9rem 0}
-.plain{background:var(--surface);border:1px solid var(--line);border-radius:var(--card);padding:1.1rem 1.25rem;margin:.9rem 0}
-.muted{color:var(--sub);font-size:.88rem}
+.page{max-width:1100px;margin:0 auto;padding:1rem 1.75rem 4rem}
+.card,.plain{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:1.2rem 1.35rem;margin:.9rem 0;box-shadow:var(--shadow)}
+.muted{color:var(--mute);font-size:.88rem}
 .row{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}
 .grow{flex:1;min-width:0}
 .hidden{display:none!important}
 .grid{display:grid;gap:.9rem;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
 
-/* 狀態：抹茶綠＝已入帳／降價、橡木琥珀＝待處理、陶土紅＝失敗／退回／漲價（文字另有 ▲▼／字樣，不只靠顏色） */
-.badge{display:inline-block;padding:2px 8px;border:1px solid var(--line);border-radius:var(--radius);font-size:.75rem;font-weight:500;color:var(--sub);white-space:nowrap}
-.b-review,.b-recognizing,.b-queued,.b-uploaded{border-color:var(--yellow);color:var(--yellow-t)}
-.b-confirmed{border-color:var(--green);color:var(--green-t)}
-.b-failed,.b-returned{border-color:var(--red);color:var(--red-t)}
-.msg{padding:.55rem .8rem;border-radius:var(--radius);margin:.5rem 0;border:1px solid var(--line);background:var(--panel);font-size:.9rem}
+/* 狀態 tag 膠囊：綠＝已入帳／降價、琥珀＝待處理、紅＝失敗／退回／漲價（文字另有 ▲▼／字樣，不只靠顏色） */
+.badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:.75rem;font-weight:800;color:var(--sub);background:var(--faint);white-space:nowrap}
+.b-review,.b-recognizing,.b-queued,.b-uploaded{background:var(--yellow-bg);color:var(--yellow-t)}
+.b-confirmed{background:var(--green-bg);color:var(--green-t)}
+.b-failed,.b-returned{background:var(--red-bg);color:var(--red-t)}
+.msg{padding:.6rem .85rem;border-radius:var(--radius);margin:.5rem 0;border:1px solid var(--line);background:var(--panel);font-size:.9rem}
 .msg.err{background:var(--red-bg);color:var(--red-t);border-color:var(--red)}
 .msg.ok{background:var(--green-bg);color:var(--green-t);border-color:var(--green)}
 .msg.info{background:var(--panel)}
+.msg.warn{background:var(--yellow-bg);color:var(--yellow-t);border-color:var(--yellow);display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;font-weight:700}
+.badge.amber{background:var(--yellow-bg);color:var(--yellow-t)}
 .r{color:var(--red-t)} .y{color:var(--yellow-t)}
 
 /* 表格 */
 table{width:100%;border-collapse:collapse}
-th{text-align:left;font-weight:500;font-size:.75rem;color:var(--sub);padding:.55rem .5rem;background:var(--panel);border-bottom:1px solid var(--line);white-space:nowrap}
+th{text-align:left;font-weight:800;font-size:.75rem;color:#7a7067;padding:.55rem .5rem;background:var(--panel);border-bottom:1px solid var(--line);white-space:nowrap}
 td{padding:.55rem .5rem;vertical-align:top;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
 tbody tr:last-child td{border-bottom:0}
 th.n,td.n{text-align:right}
 tr.red td{background:var(--red-bg)}
 tr.yellow td{background:var(--yellow-bg)}
+/* 核對頁品項卡片 */
+.lcard{border:1px solid var(--line);border-left:5px solid var(--line);border-radius:12px;background:var(--surface);padding:.7rem .8rem;margin-bottom:.7rem;display:flex;flex-direction:column;gap:.5rem}
+.lcard.red{border-left-color:var(--red);background:var(--red-bg)}
+.lcard.yellow{border-left-color:var(--yellow);background:var(--yellow-bg)}
 .tblwrap{overflow-x:auto}
 
-/* 分頁籤 */
-.tabs{display:flex;gap:4px;margin:.2rem 0 1rem;flex-wrap:wrap}
-.tabs button{border:1px solid transparent;background:transparent;border-radius:var(--radius);min-height:44px;padding:0 .95rem;color:var(--sub)}
-.tabs button.on{color:var(--ink);background:var(--panel);border-color:var(--line)}
-.tabs button:hover:not(.on){border-color:transparent;color:var(--ink)}
+/* 分頁籤：選中＝品牌色底 */
+.tabs{display:flex;gap:6px;margin:.2rem 0 1rem;flex-wrap:wrap}
+.tabs button{border:1px solid var(--line);background:#fff;border-radius:var(--radius);min-height:44px;padding:0 .95rem;color:var(--sub)}
+.tabs button.on{color:var(--brand-ink);background:var(--brand);border-color:var(--brand)}
+.tabs button:hover:not(.on){color:var(--ink)}
 
 @media (max-width:700px){
   .hdr{padding:.5rem 1rem}
-  .page{padding:1rem 1rem 4rem}
+  .page{padding:.8rem 1rem 4rem}
 }
+#col>#hdr{position:static;z-index:auto}

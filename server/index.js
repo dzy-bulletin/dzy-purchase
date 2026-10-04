@@ -13,7 +13,7 @@ const { evaluate, parseNum, parseManualDate, hasRed } = require('./postprocess')
 const calc = require('./calc');
 const { createWorker } = require('./worker');
 const { createPnlPush } = require('./pnl-push');
-const { photoFile, matchVendor, makeCtx, normText } = require('./slips-common');
+const { photoFile, matchVendor, makeCtx, normText, findVendorByName, findItemByName } = require('./slips-common');
 
 const PREFIX = '/purchase/api';
 const STATUSES = ['uploaded', 'queued', 'recognizing', 'review', 'confirmed', 'failed', 'returned'];
@@ -143,10 +143,10 @@ function makeApp(cfg, opts) {
     let rows;
     if (p.role === 'admin') {
       const b = url.searchParams.get('brand_id');
-      rows = b ? db.prepare(`SELECT id, name, brand_id, active FROM vendors WHERE brand_id = ?${act} ORDER BY name`).all(b)
-               : db.prepare(`SELECT id, name, brand_id, active FROM vendors WHERE 1 = 1${act} ORDER BY brand_id, name`).all();
-    } else rows = db.prepare(`SELECT id, name, brand_id, active FROM vendors WHERE brand_id = ?${act} ORDER BY name`).all(p.brand_id);
-    if (all) return rows.map((v) => ({ id: v.id, name: v.name, brand_id: v.brand_id, active: v.active ? 1 : 0 }));
+      rows = b ? db.prepare(`SELECT id, name, brand_id, active, auto_created FROM vendors WHERE brand_id = ?${act} ORDER BY name`).all(b)
+               : db.prepare(`SELECT id, name, brand_id, active, auto_created FROM vendors WHERE 1 = 1${act} ORDER BY brand_id, name`).all();
+    } else rows = db.prepare(`SELECT id, name, brand_id, active, auto_created FROM vendors WHERE brand_id = ?${act} ORDER BY name`).all(p.brand_id);
+    if (all) return rows.map((v) => ({ id: v.id, name: v.name, brand_id: v.brand_id, active: v.active ? 1 : 0, auto_created: v.auto_created ? 1 : 0 }));
     return rows.map((v) => (p.role === 'admin' ? { id: v.id, name: v.name, brand_id: v.brand_id } : { id: v.id, name: v.name }));
   });
 
@@ -330,11 +330,37 @@ function makeApp(cfg, opts) {
     });
   });
 
+  // 入帳自動建檔：廠商（vendor_id 空且有 vendor_name_raw）、品項（item_id 空且 raw_name 有值）。找得到同名就沿用，找不到才新增；只在入帳呼叫
+  function autoCreateMaster(s, whoStr) {
+    if (!s.vendor_id && normText(s.vendor_name_raw, 100)) {
+      const name = normText(s.vendor_name_raw, 100);
+      let vid = findVendorByName(db, s.brand_id, name);
+      if (!vid) {
+        vid = Number(db.prepare('INSERT INTO vendors (brand_id, name, aliases, active, auto_created) VALUES (?,?,?,1,1)').run(s.brand_id, name, '[]').lastInsertRowid);
+        audit(db, whoStr, 'auto_vendor', s.id, null, { id: vid, name, brand_id: s.brand_id });
+      }
+      db.prepare('UPDATE slips SET vendor_id = ? WHERE id = ?').run(vid, s.id);
+    }
+    const slip = slipRow(s.id);
+    for (const l of linesOf(s.id)) {
+      const rn = normText(l.raw_name, 100);
+      if (l.item_id || !rn) continue;
+      let iid = findItemByName(db, slip.brand_id, rn);
+      if (!iid) {
+        const unit = normText(l.unit, 20) || null;
+        iid = Number(db.prepare('INSERT INTO items (brand_id, name, category, base_unit, active, auto_created) VALUES (?,?,NULL,?,1,1)').run(slip.brand_id, rn, unit).lastInsertRowid);
+        audit(db, whoStr, 'auto_item', s.id, null, { id: iid, name: rn, brand_id: slip.brand_id, category: null, base_unit: unit, raw_name: l.raw_name });
+      }
+      db.prepare('UPDATE slip_lines SET item_id = ? WHERE id = ?').run(iid, l.id);
+    }
+  }
+
   route('POST', /^\/slips\/([^/]+)\/confirm$/, ['accountant', 'admin'], async ({ p, m }) => db.tx(() => {
     const s = accessSlip(p, m[1]);
     if (s.status !== 'review') throw new ApiError('CONFLICT', '只有「待核對」的貨單可以入帳');
     const before = snapshot(s);
-    const r = recheck(s);                                                // 後端重算，不信前端
+    autoCreateMaster(s, A.whoOf(p));                                     // 入帳才自動補建廠商／品項（同一交易；後面任何檢查失敗整筆回滾）
+    const r = recheck(slipRow(s.id));                                    // 後端重算，不信前端
     if (r.red.length) throw new ApiError('RED_FLAGS', `還有紅色檢核沒處理：${[...new Set(r.red)].join('、')}`);
     const cur = slipRow(s.id);
     if (!cur.doc_date) throw new ApiError('BAD_INPUT', '缺少進貨日期');

@@ -37,6 +37,23 @@ var Common = (function () {
     { label: '報表', items: [['reports.html', 'cost', '食材成本'], ['reports.html', 'price', '單價走勢'], ['reports.html', 'daily', '每日進貨'], ['reports.html', 'alerts', '價格變動提醒']] },
     { label: '設定', items: [['admin.html', 'items', '品項'], ['admin.html', 'vendors', '廠商'], ['admin.html', 'pnl', '損益對照'], ['admin.html', 'stores', '門市', 'admin'], ['admin.html', 'users', '帳號', 'admin']] }
   ];
+  /* 單色 stroke 圖示（24 viewBox，stroke=currentColor）；不用 emoji */
+  var ICONS = {
+    review: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1"/><path d="m9 13 2 2 4-4"/>',
+    returned: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
+    confirmed: '<circle cx="12" cy="12" r="9"/><path d="m8 12.5 3 3 5-6"/>',
+    failed: '<path d="M12 3 2.5 20h19z"/><path d="M12 10v4.5M12 17.5v.01"/>',
+    cost: '<path d="M21 12A9 9 0 1 1 12 3v9z"/><path d="M15 3.5A9 9 0 0 1 20.5 9H15z"/>',
+    price: '<path d="m3 17 6-6 4 4 8-9"/><path d="M15 6h6v6"/>',
+    daily: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M8 3v4M16 3v4M3.5 10h17"/>',
+    alerts: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/>',
+    items: '<path d="M20.5 13.5 13 21l-9-9V4h8z"/><circle cx="8" cy="8" r="1.3"/>',
+    vendors: '<path d="M4 9.5 5.5 4h13L20 9.5"/><path d="M4 9.5a2.7 2.7 0 0 0 5.3 0 2.7 2.7 0 0 0 5.4 0 2.7 2.7 0 0 0 5.3 0"/><path d="M5 12.5V20h14v-7.5"/><path d="M10 20v-4.5h4V20"/>',
+    pnl: '<path d="M12 3v18M7 21h10"/><path d="M5 7h14"/><path d="m5 7-3 7a3.2 3.2 0 0 0 6 0zM19 7l-3 7a3.2 3.2 0 0 0 6 0z"/>',
+    stores: '<path d="M3 11 12 4l9 7"/><path d="M5.5 9.5V20h13V9.5"/><path d="M10 20v-5.5h4V20"/>',
+    users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.7a3.5 3.5 0 0 1 0 6.6M18 14a6.5 6.5 0 0 1 3.5 6"/>'
+  };
+  function icon(k) { return '<svg viewBox="0 0 24 24" aria-hidden="true">' + (ICONS[k] || '') + '</svg>'; }
   var NAV_DEFAULT = { 'review.html': 'review', 'reports.html': 'cost', 'admin.html': 'items' };
   var ROLE_TEXT = { admin: '管理員', accountant: '會計' };
   function curPage() { return (location.pathname.split('/').pop() || '') || 'review.html'; }
@@ -57,7 +74,7 @@ var Common = (function () {
     var groups = NAV_GROUPS.map(function (g) {
       var items = g.items.filter(function (i) { return i[3] !== 'admin' || s.role === 'admin'; }).map(function (i) {
         var cnt = g.label === '核對' ? '<span class="cnt" data-cnt="' + i[1] + '"></span>' : '';
-        return '<a href="' + i[0] + '#' + i[1] + '" data-page="' + i[0] + '" data-key="' + i[1] + '" title="' + i[2] + '"><span class="ic" aria-hidden="true">' + esc(String(i[2]).charAt(0)) + '</span><span class="tx">' + i[2] + '</span>' + cnt + '</a>';
+        return '<a href="' + i[0] + '#' + i[1] + '" data-page="' + i[0] + '" data-key="' + i[1] + '" title="' + i[2] + '"><span class="ic" aria-hidden="true">' + icon(i[1]) + '</span><span class="tx">' + i[2] + '</span>' + cnt + '</a>';
       }).join('');
       return '<div class="sgrp" role="group" aria-label="' + g.label + '"><div class="slabel">' + g.label + '</div>' + items + '</div>';
     }).join('');
@@ -65,28 +82,40 @@ var Common = (function () {
     if (s.role === 'accountant' && (s.brands || []).length > 1) {      // 多品牌會計：側欄上方品牌切換（單品牌不顯示）
       picker = '<label class="spick">目前品牌<select id="brandSwitch">' + s.brands.map(function (b) { return '<option value="' + esc(b.id) + '"' + (s.brand_id === b.id ? ' selected' : '') + '>' + esc(b.name || BRAND_NAME[b.id] || b.id) + '</option>'; }).join('') + '</select></label>';
     }
-    return '<div id="sidein"><div id="sidew">' + picker + '<nav id="snav" aria-label="主選單">' + groups + '</nav>' +
-      '<div class="suser"><div class="who"><div class="nm">' + esc(s.name || '') + '</div><div class="rl">' + esc(ROLE_TEXT[s.role] || s.role) + '</div></div><button id="chpw" type="button">改密碼</button><button id="logout" type="button">登出</button></div></div></div>';
+    var brand = '<div class="brand"><div class="blogo"><div class="logos"></div></div><div><div class="bt js-bt"></div><div class="bs js-bs"></div></div></div>';
+    var nm = String(s.name || '');
+    return '<div id="sidein"><div id="sidew">' + brand + picker + '<nav id="snav" aria-label="主選單">' + groups + '</nav>' +
+      '<div class="suser"><div class="who"><div class="av" aria-hidden="true">' + esc(nm.charAt(0) || '?') + '</div><div class="wt"><div class="nm">' + esc(nm) + '</div><div class="rl">' + esc(ROLE_TEXT[s.role] || s.role) + '</div></div></div><button id="chpw" type="button">改密碼</button><button id="logout" type="button">登出</button></div></div></div>';
   }
 
+  /* 深色頂條（上傳頁、登入／改密碼畫面）：品牌 logo＋標題；上傳頁登入後多放改密碼／登出 */
   function headerHTML(o, s) {
     return '<header class="hdr"><div class="logos"></div><span class="ttl">' + esc(o.title) + '</span>' +
       (s && !o.nav ? '<button id="chpw" type="button" class="hout">改密碼</button><button id="logout" type="button" class="hout">登出</button>' : '') + '</header>';
   }
+  /* 頁面頂部大標題＋副標（核對／報表／設定頁，放在主欄最上方；品牌由側欄品牌區呈現） */
+  function topbarHTML(o, s) {
+    var b = s.role === 'admin' ? null : s.brand_id, nm = (BRAND_NAME[b]) || '';
+    return '<header class="topbar"><h1>' + esc(o.title) + '</h1><div class="sub">貨單辨識系統' + (nm ? '｜' + esc(nm) : '') + '</div></header>';
+  }
 
   /* o: {title, nav, roles:[...], loginTitle, loginHint, accLabel, upper, onHash(key), onReady(session)}
-     o.nav：核對／報表／設定頁，登入後在視窗左側加側欄（上傳頁不給 nav，只有品牌色標題列） */
+     o.nav：核對／報表／設定頁，登入後在視窗左側加深色側欄＋主欄頂部大標題（上傳頁不給 nav，只有深色頂條） */
   function gate(o) {
     var hdr = $('hdr'), loginBox = $('login'), app = $('app'), shell = null;
+    var col = null;
     function ensureShell() {
       if (shell || !o.nav) return shell;
       shell = document.createElement('div'); shell.id = 'shell';
       var side = document.createElement('aside'); side.id = 'side';
-      app.parentNode.insertBefore(shell, app); shell.appendChild(side); shell.appendChild(app);
+      col = document.createElement('div'); col.id = 'col';
+      app.parentNode.insertBefore(shell, app); shell.appendChild(side); shell.appendChild(col); col.appendChild(hdr); col.appendChild(app);
       return shell;
     }
+    /* 標題區：登入／改密碼＝頁面最上方的深色頂條；登入後的導覽頁＝主欄頂部大標題 */
+    function hdrToTop() { if (col && hdr.parentNode === col) shell.parentNode.insertBefore(hdr, shell); }
     function showLogin() {
-      if (shell) shell.classList.add('hidden');
+      hdrToTop(); if (shell) shell.classList.add('hidden');
       app.classList.add('hidden'); loginBox.classList.remove('hidden');
       hdr.innerHTML = headerHTML(o, null); applyTheme(null);
       loginBox.innerHTML = '<div class="page" style="max-width:440px;padding-top:2rem"><div class="card"><h1>' + esc(o.loginTitle || o.title) + '</h1>' +
@@ -112,7 +141,7 @@ var Common = (function () {
     /* 改密碼畫面。forced＝第一次登入（或後端回 PASSWORD_CHANGE_REQUIRED）：不能略過；否則可取消回原頁 */
     function showChange(forced) {
       var s = API.session() || {};
-      if (shell) shell.classList.add('hidden');
+      hdrToTop(); if (shell) shell.classList.add('hidden');
       app.classList.add('hidden'); loginBox.classList.remove('hidden');
       hdr.innerHTML = headerHTML(o, null); applyTheme(s.role === 'admin' ? null : s.brand_id);
       loginBox.innerHTML = '<div class="page" style="max-width:440px;padding-top:2rem"><div class="card"><h1>' + (forced ? '第一次登入請設定你自己的密碼' : '改密碼') + '</h1>' +
@@ -140,9 +169,11 @@ var Common = (function () {
       var s = API.session();
       if (s.must_change_password) { showChange(true); return; }
       loginBox.classList.add('hidden'); loginBox.innerHTML = ''; app.classList.remove('hidden');
-      hdr.innerHTML = headerHTML(o, s);
+      if (o.nav) {
+        ensureShell().classList.remove('hidden'); col.insertBefore(hdr, app);
+        hdr.innerHTML = topbarHTML(o, s); $('side').innerHTML = sideHTML(s); syncNav();
+      } else hdr.innerHTML = headerHTML(o, s);
       applyTheme(s.role === 'admin' ? null : s.brand_id);
-      if (o.nav) { ensureShell().classList.remove('hidden'); $('side').innerHTML = sideHTML(s); syncNav(); }
       $('logout').onclick = function () { API.logout(); showLogin(); };
       $('chpw').onclick = function () { showChange(false); };
       if ($('brandSwitch')) $('brandSwitch').onchange = async function () {

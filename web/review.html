@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#FBFBF9">
+<meta name="theme-color" content="#1b1917">
 <title>會計核對｜貨單辨識系統</title>
 <meta name="description" content="鼎兆元貨單辨識系統｜會計核對門市上傳的貨單：對照照片確認品項、數量、金額後入帳。">
 <meta property="og:type" content="website">
@@ -16,32 +16,50 @@
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&family=Space+Mono:wght@400;700&family=Noto+Sans+TC:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <style>
   body{height:100vh;display:flex;flex-direction:column;overflow:hidden}
   #hdr{position:static}
   #shell{flex:1;min-height:0}
-  #shell>#app{display:flex;flex-direction:column;min-height:0}
+  #shell>#col{min-height:0}
+  #col>#app{display:flex;flex-direction:column;min-height:0;flex:1}
   #login{overflow:auto}
   .main{display:flex;flex:1;min-height:0}
-  .lside{width:200px;border-right:1px solid var(--line);overflow:auto;flex:none;display:flex;flex-direction:column}
+  .lside{width:180px;border-right:1px solid var(--line);overflow:auto;flex:none;display:flex;flex-direction:column}
   .lside .sel-wrap{padding:.8rem 1rem;border-bottom:1px solid var(--line)}
   .lside .item{padding:.9rem 1.1rem;border-bottom:1px solid var(--faint);cursor:pointer;display:flex;flex-direction:column;gap:.1rem}
   .lside .item:hover{background:var(--panel)}
   .lside .item>div:nth-child(n+3){font-family:var(--mono)}
   .lside .item{border-left:3px solid transparent}
-  .lside .item.sel{background:var(--panel);border-left-color:var(--red)}
+  .lside .item.sel{background:var(--panel);border-left-color:var(--brand)}
   .dot{width:7px;height:7px;border-radius:50%;background:var(--red);display:inline-block;flex:none}
   .work{flex:1;display:flex;min-width:0;min-height:0}
-  .photo{width:max(520px,calc((100vw - 56px) * .41));flex:none;min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--line);padding:1rem;gap:.6rem}
-  .viewer{flex:1;overflow:hidden;position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--card);cursor:grab;touch-action:none}
+  .photo{width:max(520px,calc((100vw - 64px) * .55));flex:none;min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--line);padding:1rem;gap:.6rem}
+  .viewer{flex:1;overflow:hidden;position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--card);box-shadow:var(--shadow);cursor:grab;touch-action:none}
   .viewer.drag{cursor:grabbing}
   .viewer img{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;user-select:none;-webkit-user-drag:none}
   .vtools{display:flex;gap:.4rem;flex-wrap:wrap}
   .vtools button{min-height:44px;padding:0 .8rem;font-size:.85rem}
-  .detail{flex:1;overflow:auto;padding:1.2rem .8rem;min-width:0}
-  .head{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.8rem;margin-top:.8rem}
+  .detail{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;padding:0}
+  .dscroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:1rem .8rem .6rem}
+  .dfoot{flex:none;background:var(--bg);border-top:1px solid var(--line);padding:.5rem .8rem .6rem;box-shadow:0 -6px 14px rgba(0,0,0,.06)}
+  .dfoot .sum{margin:0 0 .5rem;padding:.45rem .7rem;font-size:.9rem}
+  .dfoot .actions{position:static;padding:.2rem 0 0;border-top:0}
+  .dfoot #note{margin-bottom:.4rem;font-size:.85rem}
+  .lcard .l1,.lcard .l4{display:flex;gap:.5rem;align-items:center}
+  .lcard .l1 input{flex:1;min-width:0}
+  .lcard .l3{display:grid;grid-template-columns:repeat(auto-fit,minmax(72px,1fr));gap:.4rem}
+  .lcard .l3 label{display:flex;flex-direction:column;gap:.15rem;font-size:.72rem;font-weight:700;color:var(--mute)}
+  .lcard input{min-height:40px;padding:0 .5rem;width:100%;min-width:0;font-size:15px;color:var(--ink)}
+  .lcard .l3 input{font-size:16px;font-weight:700}
+  .lcard .l3 input.num{text-align:right}
+  .lcard .l4 .why{flex:1;margin:0;min-width:0}
+  .lcard .ck{display:flex;align-items:center;gap:.3rem;font-size:.85rem;font-weight:700;flex:none;cursor:pointer;min-height:44px}
+  .lcard .ck input{width:26px;height:26px;min-height:0;padding:0;margin:0}
+  .lcard .l1 button{min-width:40px;min-height:40px;padding:0;flex:none}
+  .lcard .pk{min-width:0}
+  .head{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.8rem;margin-top:.8rem}
   .head .wide{grid-column:1/-1}
   .taxbox{display:flex;flex-direction:column;gap:.35rem}
   .taxinc{display:flex;align-items:center;gap:.4rem;font-size:.82rem;color:var(--sub);cursor:pointer}
@@ -52,16 +70,6 @@
   .sum.bad{border-color:var(--red);background:var(--red-bg)}
   .actions{position:sticky;bottom:0;background:var(--bg);padding:.7rem 0;display:flex;gap:.6rem;flex-wrap:wrap;border-top:1px solid var(--line);align-items:center}
   .hand{background:var(--yellow-bg);color:var(--yellow-t);padding:.5rem .7rem;margin:.5rem 0;border:1px solid var(--yellow);border-radius:var(--radius)}
-  #lines td input{min-height:40px;padding:0 .35rem}
-  #lines td.num input{text-align:right;min-width:44px;width:100%}
-  #lines th,#lines td{padding-left:.2rem;padding-right:.2rem}
-  #lines td.del{width:36px;padding-left:0;padding-right:.2rem}
-  #lines td.del button{min-width:32px;padding:0}
-  #lines td.chk{width:44px;text-align:center}
-  #lines td.chk input{width:22px;height:22px}
-  #lines th.chk{text-align:center}
-  td input[data-k=unit]{min-width:36px;width:100%}
-  td input[data-k=raw_name]{min-width:56px;width:100%}
   .pk{position:relative;min-width:84px}
   .pk .sug{display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.25rem}
   .pk .sug button{min-height:32px;padding:0 .6rem;font-size:.8rem;border-style:dashed}
@@ -73,7 +81,7 @@
   .ov{position:fixed;inset:0;background:rgba(44,42,41,.35);display:flex;align-items:center;justify-content:center;z-index:50;padding:1rem}
   .ov .box{background:var(--surface);border:1px solid var(--line);border-radius:var(--card);padding:1.2rem;width:100%;max-width:400px}
   @media (max-width:1400px){.lside{width:180px}}
-  @media (max-width:860px){body{overflow:auto;height:auto}#shell{flex:none}.main,.work{flex-direction:column}.lside{width:auto;border-right:0;border-bottom:1px solid var(--line);max-height:220px}.photo{width:auto;flex:none;min-height:300px;border-right:0}.head{grid-template-columns:1fr 1fr}}
+  @media (max-width:860px){body{overflow:auto;height:auto}#shell{flex:none}.main,.work{flex-direction:column}.lside{width:auto;border-right:0;border-bottom:1px solid var(--line);max-height:220px}.photo{width:auto;flex:none;min-height:300px;border-right:0}.dscroll{overflow:visible}.dfoot{position:sticky;bottom:0}}
 </style>
 </head>
 <body>
@@ -176,7 +184,7 @@ function render() {
   $('work').innerHTML =
     '<div class="photo"><div class="viewer" id="viewer"><img id="vimg" alt="貨單照片"></div>' +
     '<div class="vtools" id="vtools"></div></div>' +
-    '<div class="detail"><div class="row"><h2 class="grow" style="margin:0">' + esc(d.id) + '</h2><span class="badge b-' + esc(d.status) + '">' + esc(STATUS_TEXT[d.status] || d.status) + '</span></div>' +
+    '<div class="detail"><div class="dscroll"><div class="row"><h2 class="grow" style="margin:0">' + esc(d.id) + '</h2><span class="badge b-' + esc(d.status) + '">' + esc(STATUS_TEXT[d.status] || d.status) + '</span></div>' +
     '<div class="head">' +
     '<label class="f">廠商<input id="f_vendor" value="' + esc(d.vendor_name || '') + '" ' + dis + '></label>' +
     '<label class="f">日期<input id="f_date" value="' + esc(d.doc_date || '') + '" placeholder="YYYY-MM-DD" ' + dis + '></label>' +
@@ -189,10 +197,10 @@ function render() {
     (d.total_handwritten ? '<div class="hand">總額有手寫修正，請對照照片確認</div>' : '') +
     (d.status === 'returned' && d.return_reason ? '<div class="msg err">退回原因：' + esc(d.return_reason) + '（要修改請先按「重新開放」）</div>' : '') +
     '<div id="slipWhy" class="why"></div>' +
-    '<div class="tblwrap"><table id="lines"><thead><tr><th>品名（單上寫的）</th><th>統一品名</th><th class="n">數量</th><th>單位</th><th class="n">單價</th><th class="n">金額</th><th class="chk">勾選</th><th></th></tr></thead><tbody id="tb"></tbody></table></div>' +
-    (ro ? '' : '<button id="addLine" type="button" style="margin-top:.6rem">＋ 新增一列</button>') +
-    '<div class="sum" id="sum"></div><div id="note"></div>' +
-    '<div class="actions" id="actions"></div></div>';
+    '<div id="tb"></div>' +
+    (ro ? '' : '<button id="addLine" type="button" style="margin-top:.2rem">＋ 新增一列</button>') + '</div>' +
+    '<div class="dfoot"><div class="sum" id="sum"></div><div id="note"></div>' +
+    '<div class="actions" id="actions"></div></div></div>';
   buildRows(); buildActions(); buildViewer(); bindHead(); update();
 }
 
@@ -214,12 +222,13 @@ function itemName(l) { var it = l.item_id && ITEMS[l.item_id]; return it ? it.na
 function buildRows() {
   var ro = cur.status === 'confirmed' || cur.status === 'returned', tb = $('tb');
   tb.innerHTML = cur.lines.map(function (l, i) {
-    function inp(k, cls) { return '<td class="' + (cls || '') + '"><input data-i="' + i + '" data-k="' + k + '" ' + (cls === 'num' ? 'inputmode="decimal" ' : '') + 'value="' + esc(l[k] == null ? '' : l[k]) + '" ' + (ro ? 'disabled' : '') + ' aria-label="' + ({ qty: '數量', unit: '單位', unit_price: '單價', amount: '金額' }[k]) + '"></td>'; }
-    return '<tr id="r' + i + '"><td style="min-width:100px"><input data-i="' + i + '" data-k="raw_name" value="' + esc(l.raw_name || '') + '" ' + (ro ? 'disabled' : '') + ' aria-label="品名"><div class="why" data-why="' + i + '"></div></td>' +
-      '<td><div class="pk" data-pk="' + i + '"><input data-i="' + i + '" data-k="item" value="' + esc(itemName(l)) + '" placeholder="搜尋統一品名" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="dd' + i + '" ' + (ro ? 'disabled' : '') + ' aria-label="統一品名"><div class="dd hidden" role="listbox" id="dd' + i + '" aria-label="統一品名選項"></div><div class="sug"></div></div></td>' +
-      inp('qty', 'num') + inp('unit') + inp('unit_price', 'num') + inp('amount', 'num') +
-      '<td class="chk"><input type="checkbox" data-i="' + i + '" data-k="checked" ' + (l.checked ? 'checked' : '') + ' ' + (ro ? 'disabled' : '') + ' aria-label="已核對"></td>' +
-      '<td class="del">' + (ro ? '' : '<button class="sm warn" type="button" data-del="' + i + '" aria-label="刪除這列">✕</button>') + '</td></tr>';
+    var dsb = ro ? 'disabled' : '';
+    function inp(k, label, num) { return '<label>' + label + '<input class="' + (num ? 'num' : '') + '" data-i="' + i + '" data-k="' + k + '" ' + (num ? 'inputmode="decimal" ' : '') + 'value="' + esc(l[k] == null ? '' : l[k]) + '" ' + dsb + ' aria-label="' + label + '"></label>'; }
+    return '<div class="lcard" id="r' + i + '">' +
+      '<div class="l1"><input data-i="' + i + '" data-k="raw_name" value="' + esc(l.raw_name || '') + '" placeholder="單上品名" ' + dsb + ' aria-label="品名（單上寫的）">' + (ro ? '' : '<button class="sm warn" type="button" data-del="' + i + '" aria-label="刪除這列">✕</button>') + '</div>' +
+      '<div class="pk" data-pk="' + i + '"><input data-i="' + i + '" data-k="item" value="' + esc(itemName(l)) + '" placeholder="搜尋統一品名" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="dd' + i + '" ' + dsb + ' aria-label="統一品名"><div class="dd hidden" role="listbox" id="dd' + i + '" aria-label="統一品名選項"></div><div class="sug"></div></div>' +
+      '<div class="l3">' + inp('qty', '數量', 1) + inp('unit', '單位') + inp('unit_price', '單價', 1) + inp('amount', '金額', 1) + '</div>' +
+      '<div class="l4"><div class="why" data-why="' + i + '"></div><label class="ck"><input type="checkbox" data-i="' + i + '" data-k="checked" ' + (l.checked ? 'checked' : '') + ' ' + dsb + ' aria-label="已核對">確認</label></div></div>';
   }).join('');
   Array.prototype.forEach.call(tb.querySelectorAll('input[data-k]'), function (el) {
     var k = el.dataset.k; if (k === 'item') return;
@@ -372,7 +381,7 @@ function update() {
     var f = lineFlags(l), bad = lineBad(l), hasR = bad || f.some(function (x) { return RED[x]; }), hasY = f.length && !hasR;
     if (hasR) reds++; if (!l.checked) unchecked++;
     var tr = $('r' + i); if (!tr) return;
-    tr.className = hasR ? 'red' : (hasY ? 'yellow' : '');
+    tr.className = 'lcard ' + (hasR ? 'red' : (hasY ? 'yellow' : ''));
     var ex = '';
     if (l.qty != null && l.unit_price != null) ex = '<span class="muted">數量×單價＝' + fmt(r2(l.qty * l.unit_price)) + '</span> ';
     tr.querySelector('[data-why]').innerHTML = ex + (bad ? '<span class="r">紅：數量、單價、金額都要填且大於 0</span>　' : '') + f.map(function (x) { var m = FLAG[x] || ['y', x]; return '<span class="' + m[0] + '">' + (m[0] === 'r' ? '紅：' : '黃：') + esc(m[1]) + '</span>'; }).join('　');

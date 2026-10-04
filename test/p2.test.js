@@ -179,7 +179,7 @@ test('管理：廠商（all=1 含停用）、品名類別驗證、換算整份�
     await t.call('PUT', `/vendors/${nv}`, { token: k.acc, body: { active: false } });
     assert.ok(!(await t.call('GET', '/vendors', { token: k.acc })).data.some((v) => v.id === nv));
     const all = await t.call('GET', '/vendors?all=1', { token: k.acc });
-    assert.deepStrictEqual(Object.keys(all.data[0]).sort(), ['active', 'brand_id', 'id', 'name']);
+    assert.deepStrictEqual(Object.keys(all.data[0]).sort(), ['active', 'auto_created', 'brand_id', 'id', 'name']);
     assert.strictEqual(all.data.find((v) => v.id === nv).active, 0);
     assert.ok(all.data.every((v) => v.brand_id === 'C'));
     // 品名

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#FBFBF9">
+<meta name="theme-color" content="#1b1917">
 <title>設定｜貨單辨識系統</title>
 <meta name="description" content="鼎兆元貨單辨識系統｜品項、廠商、損益對照與帳號設定。">
 <meta property="og:type" content="website">
@@ -16,7 +16,7 @@
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&family=Space+Mono:wght@400;700&family=Noto+Sans+TC:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <style>
   .formgrid{display:grid;gap:.8rem;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));align-items:end}
@@ -72,7 +72,7 @@ function fieldHTML(f, v) {
   var val = v == null ? '' : v;
   if (f.type === 'check') return '<label class="chkline"><input type="checkbox" data-k="' + f.k + '"' + (v === undefined || v === null ? (f.def ? ' checked' : '') : (v ? ' checked' : '')) + '> ' + esc(f.label) + '</label>';
   if (f.type === 'brands') return '<fieldset class="f brandchk" data-k="' + f.k + '" style="border:0;padding:0;margin:0"><legend style="padding:0;margin-bottom:.3rem">' + esc(f.label) + '</legend>' + BRAND_OPTS.map(function (b) { return '<label class="chkline" style="display:inline-flex;margin-right:1rem"><input type="checkbox" data-bk="' + b[0] + '"' + ((v || []).indexOf(b[0]) >= 0 ? ' checked' : '') + '> ' + esc(b[1]) + '</label>'; }).join('') + '</fieldset>';
-  if (f.type === 'select') return '<label class="f">' + esc(f.label) + '<select data-k="' + f.k + '">' + f.options.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (String(o[0]) === String(val) ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select></label>';
+  if (f.type === 'select') return '<label class="f">' + esc(f.label) + '<select data-k="' + f.k + '">' + ((val == null || val === '') ? '<option value="" selected disabled>請選擇' + esc(f.label) + '</option>' : '') + f.options.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (String(o[0]) === String(val) ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select></label>';
   return '<label class="f">' + esc(f.label) + '<input data-k="' + f.k + '" type="' + (f.type || 'text') + '" value="' + (f.type === 'password' ? '' : esc(val)) + '"' + (f.ph ? ' placeholder="' + esc(f.ph) + '"' : '') + (f.type === 'password' ? ' autocomplete="new-password"' : '') + '></label>';
 }
 function readForm(fields) {
@@ -103,26 +103,41 @@ function isOff(a) { return a === 0 || a === false; }
 var BRAND_OPTS = [['X', '小辛辣'], ['M', '墨竹亭'], ['C', '央廚']];
 
 /* ---------- 品項 ---------- */
-var itemsAll = [];
+var itemsAll = [], onlyNeed = false, needCount = 0;
+function dash(v) { return v == null || v === '' ? '<span class="muted">—</span>' : esc(v); }
 async function viewItems() {
-  $('body').innerHTML = '<div class="tools"><input id="q" type="search" placeholder="搜尋品項名稱" aria-label="搜尋品項"><label class="chkline"><input id="showOff" type="checkbox"> 顯示停用</label><button id="addItem" type="button" class="primary">＋ 新增品項</button></div><div class="tblwrap"><table><thead><tr><th>統一品名</th><th>類別</th><th>統一單位</th><th>狀態</th><th></th></tr></thead><tbody id="tb"></tbody></table></div>';
-  try { itemsAll = await Common.get('/items'); } catch (e) { $('body').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; return; }
+  $('body').innerHTML = '<div id="needbar"></div><div class="tools"><input id="q" type="search" placeholder="搜尋品項名稱" aria-label="搜尋品項"><label class="chkline"><input id="showOff" type="checkbox"> 顯示停用</label><button id="addItem" type="button" class="primary">＋ 新增品項</button></div><div class="tblwrap"><table><thead><tr><th>統一品名</th><th>類別</th><th>統一單位</th><th>狀態</th><th></th></tr></thead><tbody id="tb"></tbody></table></div>';
+  async function load() {
+    try {
+      itemsAll = await Common.get('/items', onlyNeed ? { needs_category: 1 } : {});
+      if (!onlyNeed) needCount = itemsAll.filter(function (x) { return x.needs_category && !isOff(x.active); }).length;
+    } catch (e) { $('body').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; return false; }
+    return true;
+  }
+  function bar() {
+    $('needbar').innerHTML = (needCount || onlyNeed) ? '<div class="msg warn needbar">有 ' + needCount + ' 個品項待補分類 <button id="needBtn" type="button" class="sm">' + (onlyNeed ? '看全部品項' : '只看待補分類') + '</button></div>' : '';
+    var nb = $('needBtn'); if (nb) nb.onclick = async function () { onlyNeed = !onlyNeed; if (await load()) { bar(); draw(); } };
+  }
+  if (!(await load())) return;
   function draw() {
     var q = $('q').value.trim(), off = $('showOff').checked;
     var rows = itemsAll.filter(function (it) { return (off || !isOff(it.active)) && (!q || it.name.indexOf(q) >= 0); });
+    rows.sort(function (x, y) { return (y.needs_category ? 1 : 0) - (x.needs_category ? 1 : 0); });
     $('tb').innerHTML = rows.length ? rows.map(function (it) {
-      return '<tr class="' + (isOff(it.active) ? 'off' : '') + '"><td>' + esc(it.name) + '</td><td>' + esc(it.category) + '</td><td>' + esc(it.base_unit) + '</td><td>' + stateCell(it.active) + '</td><td class="n" style="white-space:nowrap"><button class="sm" type="button" data-e="' + it.id + '">編輯</button> <button class="sm" type="button" data-u="' + it.id + '">單位換算</button></td></tr>';
+      var tag = it.needs_category ? ' <span class="badge amber">自動建立・待補分類</span>' : (it.auto_created ? ' <span class="badge">自動建立</span>' : '');
+      return '<tr class="' + (isOff(it.active) ? 'off' : '') + '"><td>' + esc(it.name) + tag + '</td><td>' + dash(it.category) + '</td><td>' + dash(it.base_unit) + '</td><td>' + stateCell(it.active) + '</td><td class="n" style="white-space:nowrap"><button class="sm" type="button" data-e="' + it.id + '">編輯</button> <button class="sm" type="button" data-u="' + it.id + '"' + (it.base_unit ? '' : ' disabled title="請先補統一單位"') + '>單位換算</button></td></tr>';
     }).join('') : '<tr><td colspan="5" class="muted">沒有品項</td></tr>';
     Array.prototype.forEach.call($('tb').querySelectorAll('[data-e]'), function (b) { b.onclick = function () { editItem(itemsAll.filter(function (x) { return String(x.id) === b.dataset.e; })[0]); }; });
     Array.prototype.forEach.call($('tb').querySelectorAll('[data-u]'), function (b) { b.onclick = function () { editUnits(itemsAll.filter(function (x) { return String(x.id) === b.dataset.u; })[0]); }; });
   }
   $('q').oninput = draw; $('showOff').onchange = draw; $('addItem').onclick = function () { editItem(null); };
-  draw();
+  bar(); draw();
 }
 function editItem(it) {
+  var CAT4 = ['食材', '包材', '雜貨', '其他'];
   openForm({
     title: it ? '編輯品項' : '新增品項', value: it || { active: 1 },
-    fields: [{ k: 'name', label: '統一品名' }, { k: 'category', label: '類別', type: 'select', options: CATS.map(function (c) { return [c, c]; }) }, { k: 'base_unit', label: '統一單位（例如 斤、包）' }, { k: 'active', label: '啟用', type: 'check', def: 1 }],
+    fields: [{ k: 'name', label: '統一品名' }, { k: 'category', label: '類別', type: 'select', options: CAT4.map(function (c) { return [c, c]; }) }, { k: 'base_unit', label: '統一單位（例如 斤、包）' }, { k: 'active', label: '啟用', type: 'check', def: 1 }],
     onSave: function (o) {
       if (!o.name || !o.base_unit) throw new Error('請填品名與統一單位');
       return it ? Common.send('PUT', '/items/' + it.id, o) : Common.send('POST', '/items', o);
@@ -163,7 +178,7 @@ async function editUnits(it) {
 async function viewVendors() {
   var list; try { list = await Common.get('/vendors', { all: 1 }); } catch (e) { $('body').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; return; }
   $('body').innerHTML = '<div class="tools"><button id="add" type="button" class="primary">＋ 新增廠商</button></div><div class="tblwrap"><table><thead><tr><th>廠商名稱</th><th>狀態</th><th></th></tr></thead><tbody>' +
-    (list.length ? list.map(function (v) { return '<tr class="' + (isOff(v.active) ? 'off' : '') + '"><td>' + esc(v.name) + '</td><td>' + stateCell(v.active) + '</td><td class="n"><button class="sm" type="button" data-e="' + v.id + '">編輯</button></td></tr>'; }).join('') : '<tr><td colspan="3" class="muted">還沒有廠商</td></tr>') + '</tbody></table></div>';
+    (list.length ? list.map(function (v) { return '<tr class="' + (isOff(v.active) ? 'off' : '') + '"><td>' + esc(v.name) + (v.auto_created ? ' <span class="badge">自動建立</span>' : '') + '</td><td>' + stateCell(v.active) + '</td><td class="n"><button class="sm" type="button" data-e="' + v.id + '">編輯</button></td></tr>'; }).join('') : '<tr><td colspan="3" class="muted">還沒有廠商</td></tr>') + '</tbody></table></div>';
   function edit(v) {
     openForm({ title: v ? '編輯廠商' : '新增廠商', value: v || { active: 1 }, fields: [{ k: 'name', label: '廠商名稱' }, { k: 'active', label: '啟用', type: 'check', def: 1 }],
       onSave: function (o) { if (!o.name) throw new Error('請填廠商名稱'); return v ? Common.send('PUT', '/vendors/' + v.id, o) : Common.send('POST', '/vendors', o); } });

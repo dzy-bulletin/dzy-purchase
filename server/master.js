@@ -191,7 +191,7 @@ module.exports = function register(ctx) {
   });
 
   // ---------- 廠商 ----------
-  const vendorOut = (r) => ({ id: r.id, name: r.name, brand_id: r.brand_id, active: r.active ? 1 : 0 });
+  const vendorOut = (r) => ({ id: r.id, name: r.name, brand_id: r.brand_id, active: r.active ? 1 : 0, auto_created: r.auto_created ? 1 : 0 });
   const aliasesOf = (v) => {
     if (!Array.isArray(v)) throw new ApiError('BAD_INPUT', 'aliases 必須是字串陣列');
     return JSON.stringify([...new Set(v.map((x) => String(x).trim()).filter(Boolean))].slice(0, 20));
@@ -228,7 +228,7 @@ module.exports = function register(ctx) {
   });
 
   // ---------- 品名表 ----------
-  const itemOut = (r) => ({ id: r.id, name: r.name, category: r.category, base_unit: r.base_unit, active: r.active ? 1 : 0, brand_id: r.brand_id });
+  const itemOut = (r) => ({ id: r.id, name: r.name, category: r.category, base_unit: r.base_unit, active: r.active ? 1 : 0, brand_id: r.brand_id, auto_created: r.auto_created ? 1 : 0, needs_category: r.category == null ? 1 : 0 });
   const category = (v) => { if (!CATEGORIES.includes(v)) throw new ApiError('BAD_INPUT', `類別只能是 ${CATEGORIES.join('、')}`); return v; };
 
   route('GET', /^\/items$/, ['accountant', 'admin'], async ({ p, url }) => {
@@ -237,7 +237,8 @@ module.exports = function register(ctx) {
     const w = [], a = [];
     if (brand) { w.push('brand_id = ?'); a.push(brand); }
     if (q) { w.push("name LIKE ? ESCAPE '\\'"); a.push('%' + q.replace(/[\\%_]/g, (c) => '\\' + c) + '%'); }
-    return db.prepare(`SELECT * FROM items ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY brand_id, name`).all(...a).map(itemOut);
+    if (url.searchParams.get('needs_category') === '1') w.push('category IS NULL');
+    return db.prepare(`SELECT * FROM items ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY (category IS NULL) DESC, brand_id, name`).all(...a).map(itemOut);
   });
   route('POST', /^\/items$/, ['accountant', 'admin'], async ({ req, p }) => {
     const b = await body(req);
@@ -267,7 +268,7 @@ module.exports = function register(ctx) {
       const cols = Object.keys(set);
       if (cols.length) db.prepare(`UPDATE items SET ${cols.map((c) => c + ' = ?').join(', ')} WHERE id = ?`).run(...cols.map((c) => set[c]), it.id);
       const row = db.prepare('SELECT * FROM items WHERE id = ?').get(it.id);
-      if (set.category && set.category !== it.category) P.markForItem(db, it.id, new Date().toISOString());   // 類別變了 → 對到的損益科目可能不同，含此品項的店×月重推
+      if ((set.category && set.category !== it.category) || (set.base_unit !== undefined && set.base_unit !== it.base_unit)) P.markForItem(db, it.id, new Date().toISOString());   // 類別變了 → 對到的損益科目可能不同，含此品項的店×月重推
       audit(db, who(p), 'item_update', null, itemOut(it), itemOut(row));
       return itemOut(row);
     });

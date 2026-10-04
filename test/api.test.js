@@ -19,7 +19,7 @@ test('健康檢查、資料表數量、重啟不重建', async () => {
     const { openDb } = require('../server/db');
     const again = openDb(t.dir);                                    // 同一資料夾再開一次：資料還在
     assert.strictEqual(again.prepare('SELECT COUNT(*) c FROM stores').get().c, 3);
-    assert.strictEqual(again.prepare('PRAGMA user_version').get().user_version, 9);
+    assert.strictEqual(again.prepare('PRAGMA user_version').get().user_version, 10);
     again.close();
     assert.ok((await t.call('GET', '/nope')).error === 'NOT_FOUND');
   } finally { await t.close(); }
@@ -140,7 +140,7 @@ test('worker：漏零 → AMOUNT_FIXED；品牌隔離；有紅旗標 confirm →
     assert.strictEqual((await t.call('POST', `/slips/${id}/unconfirm`, { token: accC, body: {} })).error, 'BAD_INPUT');
     assert.strictEqual((await t.call('POST', `/slips/${id}/unconfirm`, { token: accC, body: { reason: '單價打錯' } })).data.status, 'review');
     const acts = t.app.db.prepare('SELECT action FROM audit WHERE slip_id = ? ORDER BY id').all(id).map((r) => r.action);
-    assert.deepStrictEqual(acts, ['upload', 'recognize', 'edit', 'edit', 'edit', 'confirm', 'unconfirm']);
+    assert.deepStrictEqual(acts, ['upload', 'recognize', 'edit', 'edit', 'edit', 'auto_item', 'confirm', 'unconfirm']);
     const un = t.app.db.prepare("SELECT after FROM audit WHERE action='unconfirm'").get();
     assert.ok(un.after.includes('單價打錯'));
   } finally { await t.close(); }

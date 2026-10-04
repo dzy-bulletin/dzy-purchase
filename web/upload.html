@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#FBFBF9">
+<meta name="theme-color" content="#1b1917">
 <title>門市上傳｜貨單辨識系統</title>
 <meta name="description" content="鼎兆元貨單辨識系統｜門市收貨時用手機拍廠商貨單，送出即可，會計會在後台核對入帳。">
 <meta property="og:type" content="website">
@@ -16,7 +16,7 @@
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&family=Space+Mono:wght@400;700&family=Noto+Sans+TC:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <style>
   /* 手機上傳頁：字大、按鈕 >= 44px（這裡一律 52px） */
@@ -24,7 +24,7 @@
   .wrap{padding-top:1rem;max-width:560px;margin:0 auto;padding:0 1rem 4rem;overflow-x:hidden}
   #login{overflow-x:hidden}
   .hdr{padding:.5rem 1rem}
-  .hdr .logos img{height:36px}
+  .hdr .logos .lg,.hdr .logos .txt{width:36px;height:36px}
   .stack button,.bigbtn{min-height:52px;font-size:1rem}
   select,input{min-height:52px;font-size:1rem}
   .thumbs{display:flex;gap:.5rem;flex-wrap:wrap;margin:.6rem 0}
@@ -39,7 +39,7 @@
   .slip .muted{font-family:var(--mono);font-size:.75rem}
   .bigbtn{width:100%;margin-top:.5rem}
   .step{display:flex;align-items:baseline;gap:.6rem}
-  .step b{font-family:var(--mono);font-size:.8rem;font-weight:700;color:var(--bg);background:var(--ink);border-radius:var(--radius);width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;flex:none}
+  .step b{font-family:var(--mono);font-size:.8rem;font-weight:700;color:var(--brand-ink);background:var(--brand);border-radius:var(--radius);width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;flex:none}
 </style>
 </head>
 <body>
@@ -51,7 +51,7 @@
     <div id="pendingBar" class="msg info pending hidden">
       <span id="pendingText"></span><button id="retryNow" type="button">立即補傳</button>
     </div>
-    <p id="who" class="muted" style="margin:.2rem 0 0"></p>
+    <p id="who" class="muted" style="margin:.8rem 0 0"></p>
     <div id="msg"></div>
 
     <div class="card stack">

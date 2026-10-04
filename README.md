@@ -31,6 +31,12 @@
 - **單價比較一律未稅**：`tax_included=1` 的列，未稅金額＝金額 × (總額−稅額)÷總額（稅額空白或總額 0 → 1:1）；`unit_cost`、加權平均、價格變動提醒都用未稅金額，含稅與未稅廠商同品項不會產生假漲跌。每日明細的 `amount` 仍是單上原始金額。
 - **升級**：`git pull` ＋重啟即可，開庫時自動跑 v9（兩個 `ALTER TABLE ADD COLUMN ... DEFAULT 0`，交易內執行，失敗會回滾）；既有貨單與廠商一律 0＝原規則，不改任何既有數字。
 
+## 廠商與品項自動建立（migration v10，Eason 2026-10-04）
+- **時機只有入帳**（`POST /slips/:id/confirm`，同一交易；後面任何檢查失敗整筆回滾、不留主檔）：貨單 `vendor_id` 空且有 `vendor_name_raw` → 同品牌找同名廠商（名稱／別名，不分大小寫、全半形空白視同，含停用的），找不到才新增 `vendors(auto_created=1)`；明細 `item_id` 空且 `raw_name` 有值 → 同品牌找同名品項（normText 後完全相同），找不到才新增 `items(category=NULL, base_unit=該列單位或 NULL, auto_created=1)`，並寫入 `item_aliases`（下一張同廠商同寫法辨識時自動帶入）。每筆新增寫 audit `auto_vendor`／`auto_item`。取消入帳**不刪**主檔。
+- **`category` 為 NULL＝未分類**：成本報表歸「未分類」、不推損益、計入待補對照；補分類（`PUT /items/:id`）後，含該品項已入帳列的店×月自動 markDirty 重推。**`base_unit` 為 NULL**：各列標 `UNIT_UNCONVERTED`、不進單價比較，補統一單位後同樣 markDirty。
+- **API**：`GET /items` 回 `auto_created`、`needs_category`（category 為空＝1），且 category 為空的排最前；`?needs_category=1` 只回待補分類的。`GET /vendors?all=1` 與 vendor 物件回 `auto_created`。
+- **遷移 v10**：`vendors`／`items` 加 `auto_created`；`items` 原本 `category`、`base_unit` 是 NOT NULL，SQLite 不能直接改，所以**在遷移交易內重建 `items` 表**（建新表→整表複製、id 不變→刪舊→改名；items 無索引、無表以外鍵指向它，既有品項、換算、廠商記憶、已入帳貨單不受影響；失敗整筆回滾）。升級＝`git pull`＋重啟。**回退**：舊版程式開 v10 庫仍可用（不會再跑遷移，只是看不到 `auto_created`；NULL 類別舊版一律當「未分類」），自動建的品項類別留 NULL，需會計補。
+
 ## 計算說明（P2）
 - 統一單位：只有單位與品項的統一單位**完全相同**時才當 1；單位空白或沒設換算 → 標 `UNIT_UNCONVERTED`，不進加權平均與價格比較，金額照計入成本。
 - 價格變動提醒「不回頭重算」：只在入帳當下，與「排在本張之前、最近一筆已入帳」比一次。若較晚日期的貨單先入帳、較早日期的後入帳，先入帳的那張不會被重算，提醒反映的是入帳當下的狀態。

@@ -86,7 +86,21 @@ const MIGRATIONS = [
    UPDATE users SET must_change_password = CASE WHEN role = 'admin' THEN 0 ELSE 1 END;`,
   // v9（品項金額已含稅，Eason 2026-10-04）：slips.tax_included＝這張單各列金額是否已含稅；vendors.tax_included＝廠商記憶（新單預設值）。既有資料一律 0＝原規則
   `ALTER TABLE slips ADD COLUMN tax_included INTEGER NOT NULL DEFAULT 0;
-   ALTER TABLE vendors ADD COLUMN tax_included INTEGER NOT NULL DEFAULT 0;`
+   ALTER TABLE vendors ADD COLUMN tax_included INTEGER NOT NULL DEFAULT 0;`,
+  // v10（廠商與品項自動建立，Eason 2026-10-04）：入帳時自動補建的廠商／品項。
+  //  - vendors.auto_created、items.auto_created（0／1）
+  //  - items.category 允許 NULL（＝未分類，不推損益）、items.base_unit 允許 NULL（＝未設統一單位，各列標 UNIT_UNCONVERTED）。
+  //    原 items 表是 category TEXT NOT NULL、base_unit TEXT NOT NULL，SQLite 無法直接改，所以安全重建：同一個遷移交易內
+  //    建新表→整表複製（id 原封不動）→刪舊表→改名。items 沒有任何索引，也沒有表以 REFERENCES 指向它（item_id 欄都是無外鍵宣告），
+  //    資料與關聯都不受影響。既有品項的 category／base_unit 值原樣保留（含空字串）。
+  //    舊版程式開這個新庫仍可用（user_version 10 > 舊程式的遷移數，不會再跑遷移；NULL 類別舊程式一律當「未分類」處理）。
+  `ALTER TABLE vendors ADD COLUMN auto_created INTEGER NOT NULL DEFAULT 0;
+   CREATE TABLE items_new (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, brand_id TEXT NOT NULL REFERENCES brands(id), name TEXT NOT NULL,
+     category TEXT DEFAULT '食材', base_unit TEXT DEFAULT '', active INTEGER NOT NULL DEFAULT 1, auto_created INTEGER NOT NULL DEFAULT 0);
+   INSERT INTO items_new (id, brand_id, name, category, base_unit, active, auto_created) SELECT id, brand_id, name, category, base_unit, active, 0 FROM items;
+   DROP TABLE items;
+   ALTER TABLE items_new RENAME TO items;`
 ];
 
 function openDb(dataDir) {
@@ -127,4 +141,4 @@ function audit(db, who, action, slipId, before, after) {
 function jobLog(db, job, ok, detail) {
   db.prepare('INSERT INTO jobs_log (at, job, ok, detail) VALUES (?,?,?,?)').run(nowIso(), job, ok ? 1 : 0, String(detail || '').slice(0, 2000));
 }
-module.exports = { openDb, audit, jobLog, nowIso, SCHEMA_VERSION: MIGRATIONS.length };
+module.exports = { openDb, audit, jobLog, nowIso, MIGRATIONS, SCHEMA_VERSION: MIGRATIONS.length };

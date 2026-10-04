@@ -198,16 +198,16 @@ test('遷移 v9：既有 v8 資料庫安全升級，既有貨單與廠商 tax_in
   db.exec("INSERT INTO stores (brand_id,code,name,pass_hash) VALUES ('X','S1','店','h')");
   db.exec("INSERT INTO vendors (brand_id,name) VALUES ('X','舊廠商')");
   db.exec("INSERT INTO slips (id,client_id,store_id,brand_id,status,doc_date,tax,total,uploaded_at) VALUES ('S1','c1',1,'X','confirmed','2026-09-01',50,1050,'2026-09-01T00:00:00Z')");
-  db.exec('ALTER TABLE slips DROP COLUMN tax_included; ALTER TABLE vendors DROP COLUMN tax_included; PRAGMA user_version = 8;');   // 倒回 v8
+  db.exec('ALTER TABLE slips DROP COLUMN tax_included; ALTER TABLE vendors DROP COLUMN tax_included; ALTER TABLE vendors DROP COLUMN auto_created; PRAGMA user_version = 8;');   // 倒回 v8
   db.close();
   db = openDb(dir);
-  assert.strictEqual(db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.strictEqual(db.prepare('PRAGMA user_version').get().user_version, 10);
   assert.strictEqual(db.prepare("SELECT tax_included t, total FROM slips WHERE id='S1'").get().t, 0);
   assert.strictEqual(db.prepare("SELECT total FROM slips WHERE id='S1'").get().total, 1050);
   assert.strictEqual(db.prepare("SELECT tax_included t FROM vendors WHERE name='舊廠商'").get().t, 0);
   db.close();
   db = openDb(dir);
-  assert.strictEqual(db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.strictEqual(db.prepare('PRAGMA user_version').get().user_version, 10);
   db.close(); fs.rmSync(dir, { recursive: true, force: true });
 });
 

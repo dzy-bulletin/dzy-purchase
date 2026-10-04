@@ -46,4 +46,24 @@ function makeCtx(db, brandId, vendorId, useAlias) {
     hasConv(itemId, unit) { return !!db.prepare('SELECT 1 FROM unit_conv WHERE item_id = ? AND unit = ?').get(itemId, unit); }
   };
 }
-module.exports = { normText, photoFile, matchVendor, makeCtx };
+
+// 入帳自動建檔（plan.md「廠商與品項自動建立」）：比對鍵＝normText 後去掉所有空白（含全形）、轉小寫
+const nameKey = (s) => normText(s).replace(/\s+/g, '').toLowerCase();
+// 同品牌找廠商：名稱或別名相同（含已停用）；找不到回 null
+function findVendorByName(db, brandId, name) {
+  const k = nameKey(name); if (!k) return null;
+  for (const v of db.prepare('SELECT id, name, aliases, active FROM vendors WHERE brand_id = ? ORDER BY active DESC, id').all(brandId)) {
+    let al = []; try { al = JSON.parse(v.aliases || '[]'); } catch (e) { /* ignore */ }
+    if ([v.name].concat(al).some((x) => x && nameKey(x) === k)) return v.id;
+  }
+  return null;
+}
+// 同品牌找統一品名：normText 後完全相同（優先啟用中的）
+function findItemByName(db, brandId, name) {
+  const n = normText(name);
+  if (!n) return null;
+  const r = db.prepare('SELECT id FROM items WHERE brand_id = ? AND name = ? ORDER BY active DESC, id LIMIT 1').get(brandId, n);
+  return r ? r.id : null;
+}
+
+module.exports = { findVendorByName, findItemByName, normText, photoFile, matchVendor, makeCtx };
