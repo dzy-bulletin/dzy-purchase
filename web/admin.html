@@ -137,9 +137,10 @@ function editItem(it) {
   var CAT4 = ['食材', '包材', '雜貨', '其他'];
   openForm({
     title: it ? '編輯品項' : '新增品項', value: it || { active: 1 },
-    fields: [{ k: 'name', label: '統一品名' }, { k: 'category', label: '類別', type: 'select', options: CAT4.map(function (c) { return [c, c]; }) }, { k: 'base_unit', label: '統一單位（例如 斤、包）' }, { k: 'active', label: '啟用', type: 'check', def: 1 }],
+    fields: [{ k: 'name', label: '統一品名' }, { k: 'category', label: '類別', type: 'select', options: [['', '請選擇類別']].concat(CAT4.map(function (c) { return [c, c]; })) }, { k: 'base_unit', label: '統一單位（例如 斤、包；可先留空，之後再補）' }, { k: 'active', label: '啟用', type: 'check', def: 1 }],
     onSave: function (o) {
-      if (!o.name || !o.base_unit) throw new Error('請填品名與統一單位');
+      if (!o.name) throw new Error('請填品名');
+      if (!o.category) throw new Error('請選擇類別');
       return it ? Common.send('PUT', '/items/' + it.id, o) : Common.send('POST', '/items', o);
     }
   });
@@ -205,7 +206,7 @@ async function viewPnl() {
     '<div class="card" style="margin-top:1rem"><h2>待補對照</h2>' +
     (d.unmapped.length ? '<p class="muted">已入帳、但沒有對照科目的金額（含稅額分攤），合計 <b>' + fmt(d.unmapped_total) + '</b>。只列有設定損益門市代號的門市。</p>' +
       '<div class="tblwrap"><table><thead><tr><th>門市</th><th>月份</th><th>廠商</th><th>類別</th><th>原因</th><th class="n">金額</th></tr></thead><tbody>' +
-      d.unmapped.map(function (r) { return '<tr><td>' + esc(r.store_name) + '</td><td>' + esc(r.month) + '</td><td>' + esc(r.vendor) + '</td><td>' + esc(r.category) + (r.category === '未分類' ? ' <span class="muted">（品項還沒對到統一品名）</span>' : '') + '</td><td>' + esc(r.reason || '未對照') + (r.reason === '科目已停用' ? ' <span class="muted">（損益系統把那個科目停用了，請改對照或請損益系統啟用）</span>' : '') + '</td><td class="n">' + fmt(r.amount) + '</td></tr>'; }).join('') + '</tbody></table></div>'
+      d.unmapped.map(function (r) { return '<tr><td>' + esc(r.store_name) + '</td><td>' + esc(r.month) + '</td><td>' + esc(r.vendor) + '</td><td>' + esc(r.category) + (r.category === '未分類' ? ' <span class="muted">（品項還沒對到統一品名，或品項還沒補分類）</span>' : '') + '</td><td>' + esc(r.reason || '未對照') + (r.reason === '科目已停用' ? ' <span class="muted">（損益系統把那個科目停用了，請改對照或請損益系統啟用）</span>' : '') + '</td><td class="n">' + fmt(r.amount) + '</td></tr>'; }).join('') + '</tbody></table></div>'
       : '<p class="muted">沒有待補對照的金額。</p>') + '</div>' +
     '<div class="card" style="margin-top:1rem"><h2>損益推送重推</h2>' +
     ((d.stuck || []).length ? '<p class="muted">下列店×月已停止自動重試（月份已定稿、或損益系統拒收）。處理好（例如請損益系統解除定稿）後按「重推」；之後有新的入帳／取消入帳也會自動重新排入。</p>' +

@@ -13,7 +13,7 @@ const { evaluate, parseNum, parseManualDate, hasRed } = require('./postprocess')
 const calc = require('./calc');
 const { createWorker } = require('./worker');
 const { createPnlPush } = require('./pnl-push');
-const { photoFile, matchVendor, makeCtx, normText, findVendorByName, findItemByName } = require('./slips-common');
+const { photoFile, matchVendor, makeCtx, normText, findVendorByName, findItemByName, okAutoVendorName, okAutoItemName } = require('./slips-common');
 
 const PREFIX = '/purchase/api';
 const STATUSES = ['uploaded', 'queued', 'recognizing', 'review', 'confirmed', 'failed', 'returned'];
@@ -332,8 +332,8 @@ function makeApp(cfg, opts) {
 
   // 入帳自動建檔：廠商（vendor_id 空且有 vendor_name_raw）、品項（item_id 空且 raw_name 有值）。找得到同名就沿用，找不到才新增；只在入帳呼叫
   function autoCreateMaster(s, whoStr) {
-    if (!s.vendor_id && normText(s.vendor_name_raw, 100)) {
-      const name = normText(s.vendor_name_raw, 100);
+    if (!s.vendor_id && okAutoVendorName(s.vendor_name_raw)) {      // 長度 2–60、非純數字；不合格維持空（不建）
+      const name = normText(s.vendor_name_raw);
       let vid = findVendorByName(db, s.brand_id, name);
       if (!vid) {
         vid = Number(db.prepare('INSERT INTO vendors (brand_id, name, aliases, active, auto_created) VALUES (?,?,?,1,1)').run(s.brand_id, name, '[]').lastInsertRowid);
@@ -343,8 +343,8 @@ function makeApp(cfg, opts) {
     }
     const slip = slipRow(s.id);
     for (const l of linesOf(s.id)) {
-      const rn = normText(l.raw_name, 100);
-      if (l.item_id || !rn) continue;
+      const rn = normText(l.raw_name);
+      if (l.item_id || !okAutoItemName(rn)) continue;                // 不合格（太短／太長／純數字／合計類字樣）→ item_id 維持 NULL（未分類）
       let iid = findItemByName(db, slip.brand_id, rn);
       if (!iid) {
         const unit = normText(l.unit, 20) || null;

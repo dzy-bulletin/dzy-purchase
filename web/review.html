@@ -285,7 +285,7 @@ function bindPicker(i) {
     list = list.filter(function (it) { return it.active !== 0 && it.active !== false; }).slice(0, 8);
     list.forEach(function (it) { ITEMS[it.id] = it; });
     var newName = inp.value.trim() && inp.value !== itemName(cur.lines[i]) ? inp.value.trim() : (cur.lines[i].raw_name || '').trim();
-    dd.innerHTML = list.map(function (it) { return '<div role="option" aria-selected="false" id="dd' + i + 'o' + it.id + '" data-id="' + it.id + '">' + esc(it.name) + ' <small>' + esc(it.category) + '・' + esc(it.base_unit) + '</small></div>'; }).join('') +
+    dd.innerHTML = list.map(function (it) { return '<div role="option" aria-selected="false" id="dd' + i + 'o' + it.id + '" data-id="' + it.id + '">' + esc(it.name) + ' <small>' + (it.category ? esc(it.category) + (it.base_unit ? '・' + esc(it.base_unit) : '') : '待補分類') + '</small></div>'; }).join('') +
       '<div class="add" role="option" aria-selected="false" id="dd' + i + 'add" data-add="1">＋ 新增品項' + (newName ? '「' + esc(newName) + '」' : '') + '</div>';
     var rc = inp.getBoundingClientRect();   // fixed 定位：不被表格的橫向捲動容器裁掉
     dd.style.left = rc.left + 'px'; dd.style.top = (rc.bottom + 2) + 'px'; dd.style.width = Math.max(rc.width, 220) + 'px';
@@ -427,8 +427,31 @@ async function save() {
     return true; }
   catch (e) { say(e.message, 'err'); return false; }
 }
+/* 入帳前預告：本張會自動建立的廠商／品項（規則與後端共用 Rules.nameKey／okAuto*；廠商別名無法由前端得知，極少數情況會多報） */
+async function autoCreatePreview() {
+  var vs = [], its = [];
+  try { vs = await Common.get('/vendors'); its = await Common.get('/items'); } catch (e) { return { vendors: [], items: [] }; }
+  var outV = [], outI = [], seenI = {};
+  var vn = String(cur.vendor_name_raw || '').trim();
+  if (!cur.vendor_id && Rules.okAutoVendorName(vn) && !vs.some(function (v) { return String(v.brand_id) === String(cur.brand_id) && Rules.nameKey(v.name) === Rules.nameKey(vn); })) outV.push(vn);
+  cur.lines.forEach(function (l) {
+    var rn = String(l.raw_name || '').trim();
+    if (l.item_id || !Rules.okAutoItemName(rn)) return;
+    var k = Rules.nameKey(rn);
+    if (seenI[k] || its.some(function (it) { return String(it.brand_id) === String(cur.brand_id) && Rules.nameKey(it.name) === k; })) return;
+    seenI[k] = 1; outI.push(rn);
+  });
+  return { vendors: outV, items: outI };
+}
 async function doConfirm() {
   if (!(await save())) return;
+  var pv = await autoCreatePreview();
+  if (pv.vendors.length || pv.items.length) {
+    var parts = [];
+    if (pv.vendors.length) parts.push('廠商 ' + pv.vendors.join('、'));
+    if (pv.items.length) parts.push('品項 ' + pv.items.join('、'));
+    if (!confirm('將自動建立：' + parts.join('；') + '\n\n確定入帳？')) return;
+  }
   try { await API.call('/slips/' + encodeURIComponent(cur.id) + '/confirm', { method: 'POST', body: {} });
     dirty = false; var id = cur.id; cur = null; $('work').innerHTML = '<div class="detail"><div class="msg ok">' + esc(id) + ' 已入帳</div></div>'; loadList(); }
   catch (e) { say((e.code === 'RED_FLAGS' ? '後端檢核不通過：' : '') + e.message, 'err'); if (e.code === 'RED_FLAGS') { try { var d = await API.call('/slips/' + encodeURIComponent(cur.id)); d.lines = d.lines.map(function (l) { return Object.assign({ checked: 0, flags: [], item_id: null }, l); }); cur = d; var m = e.message; render(); say('後端檢核不通過：' + m, 'err'); } catch (x) {} } }

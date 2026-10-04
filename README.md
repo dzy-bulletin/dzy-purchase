@@ -34,6 +34,9 @@
 ## 廠商與品項自動建立（migration v10，Eason 2026-10-04）
 - **時機只有入帳**（`POST /slips/:id/confirm`，同一交易；後面任何檢查失敗整筆回滾、不留主檔）：貨單 `vendor_id` 空且有 `vendor_name_raw` → 同品牌找同名廠商（名稱／別名，不分大小寫、全半形空白視同，含停用的），找不到才新增 `vendors(auto_created=1)`；明細 `item_id` 空且 `raw_name` 有值 → 同品牌找同名品項（normText 後完全相同），找不到才新增 `items(category=NULL, base_unit=該列單位或 NULL, auto_created=1)`，並寫入 `item_aliases`（下一張同廠商同寫法辨識時自動帶入）。每筆新增寫 audit `auto_vendor`／`auto_item`。取消入帳**不刪**主檔。
 - **`category` 為 NULL＝未分類**：成本報表歸「未分類」、不推損益、計入待補對照；補分類（`PUT /items/:id`）後，含該品項已入帳列的店×月自動 markDirty 重推。**`base_unit` 為 NULL**：各列標 `UNIT_UNCONVERTED`、不進單價比較，補統一單位後同樣 markDirty。
+- **自動建立門檻**（規則在 `web/js/rules.js`，前後端共用）：品項名稱（normText 後）長度須 2–60、不可是純數字／標點（`/^[\d\s.,\-+*/%$]+$/`）、不可等於或包含「合計、小計、總計、總額、稅額、營業稅、折扣、折讓、運費、備註、找零」，不合就**不建**、`item_id` 維持 NULL（歸未分類）；廠商同樣套長度 2–60 與排除純數字。核對頁按「入帳」前，若本張會自動建立廠商或品項，會跳確認視窗列出「將自動建立：…」。
+- **名稱比對鍵 `nameKey`**（廠商、品項同一支）：去控制字元→NFKC（全形轉半形）→去所有空白→去括號 （）()［］[] 與「・·」→小寫。例：「新 品」＝「新品」、「新來源(食品)」＝「新來源（食品）」。
+- **品項編輯**：類別與統一單位可分開補（類別必選、單位可空）；沒選類別提示「請選擇類別」。開庫時確保 `sqlite_sequence` 的 items seq ≥ MAX(id)，避免重用已刪 id。
 - **API**：`GET /items` 回 `auto_created`、`needs_category`（category 為空＝1），且 category 為空的排最前；`?needs_category=1` 只回待補分類的。`GET /vendors?all=1` 與 vendor 物件回 `auto_created`。
 - **遷移 v10**：`vendors`／`items` 加 `auto_created`；`items` 原本 `category`、`base_unit` 是 NOT NULL，SQLite 不能直接改，所以**在遷移交易內重建 `items` 表**（建新表→整表複製、id 不變→刪舊→改名；items 無索引、無表以外鍵指向它，既有品項、換算、廠商記憶、已入帳貨單不受影響；失敗整筆回滾）。升級＝`git pull`＋重啟。**回退**：舊版程式開 v10 庫仍可用（不會再跑遷移，只是看不到 `auto_created`；NULL 類別舊版一律當「未分類」），自動建的品項類別留 NULL，需會計補。
 

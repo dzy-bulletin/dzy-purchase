@@ -99,6 +99,7 @@ const MIGRATIONS = [
      id INTEGER PRIMARY KEY AUTOINCREMENT, brand_id TEXT NOT NULL REFERENCES brands(id), name TEXT NOT NULL,
      category TEXT DEFAULT '食材', base_unit TEXT DEFAULT '', active INTEGER NOT NULL DEFAULT 1, auto_created INTEGER NOT NULL DEFAULT 0);
    INSERT INTO items_new (id, brand_id, name, category, base_unit, active, auto_created) SELECT id, brand_id, name, category, base_unit, active, 0 FROM items;
+   UPDATE sqlite_sequence SET seq = (SELECT seq FROM sqlite_sequence WHERE name = 'items') WHERE name = 'items_new';
    DROP TABLE items;
    ALTER TABLE items_new RENAME TO items;`
 ];
@@ -122,6 +123,15 @@ function openDb(dataDir) {
     } catch (e) { db.exec('ROLLBACK'); throw e; }
     ver++;
   }
+  // 冪等修正：已上線的 v10 庫重建 items 時沒搬 sqlite_sequence，確保 AUTOINCREMENT 不會重用已有的 id
+  try {
+    const mx = db.prepare('SELECT MAX(id) m FROM items').get().m;
+    if (mx != null) {
+      const cur = db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'items'").get();
+      if (!cur) db.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('items', ?)").run(mx);
+      else if (cur.seq < mx) db.prepare("UPDATE sqlite_sequence SET seq = ? WHERE name = 'items'").run(mx);
+    }
+  } catch (e) { /* ignore */ }
   let depth = 0;
   db.tx = (fn) => {                                   // 交易（可巢狀：內層直接沿用外層）
     if (depth > 0) return fn();

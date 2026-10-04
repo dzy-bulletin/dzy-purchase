@@ -17,7 +17,7 @@ function matchVendor(db, brandId, name) {
   name = String(name || '').trim();
   if (!name) return null;
   const rows = db.prepare('SELECT id, name, aliases FROM vendors WHERE brand_id = ? AND active = 1').all(brandId);
-  const norm = (s) => String(s).replace(/[\s（）()]/g, '').toLowerCase();
+  const norm = nameKey;
   const n = norm(name);
   for (const v of rows) {
     let al = []; try { al = JSON.parse(v.aliases || '[]'); } catch (e) { /* ignore */ }
@@ -47,9 +47,10 @@ function makeCtx(db, brandId, vendorId, useAlias) {
   };
 }
 
-// 入帳自動建檔（plan.md「廠商與品項自動建立」）：比對鍵＝normText 後去掉所有空白（含全形）、轉小寫
-const nameKey = (s) => normText(s).replace(/\s+/g, '').toLowerCase();
-// 同品牌找廠商：名稱或別名相同（含已停用）；找不到回 null
+// 入帳自動建檔（plan.md「廠商與品項自動建立」）。
+// 比對鍵 nameKey 與門檻函式在 web/js/rules.js（前後端共用）
+const { nameKey, okAutoVendorName, okAutoItemName } = require('../web/js/rules');   // 前後端共用同一份
+// 同品牌找廠商：名稱或別名 nameKey 相同（含已停用）；找不到回 null
 function findVendorByName(db, brandId, name) {
   const k = nameKey(name); if (!k) return null;
   for (const v of db.prepare('SELECT id, name, aliases, active FROM vendors WHERE brand_id = ? ORDER BY active DESC, id').all(brandId)) {
@@ -58,12 +59,11 @@ function findVendorByName(db, brandId, name) {
   }
   return null;
 }
-// 同品牌找統一品名：normText 後完全相同（優先啟用中的）
+// 同品牌找統一品名：nameKey 相同（優先啟用中的）
 function findItemByName(db, brandId, name) {
-  const n = normText(name);
-  if (!n) return null;
-  const r = db.prepare('SELECT id FROM items WHERE brand_id = ? AND name = ? ORDER BY active DESC, id LIMIT 1').get(brandId, n);
-  return r ? r.id : null;
+  const k = nameKey(name); if (!k) return null;
+  for (const r of db.prepare('SELECT id, name FROM items WHERE brand_id = ? ORDER BY active DESC, id').all(brandId)) if (nameKey(r.name) === k) return r.id;
+  return null;
 }
 
-module.exports = { findVendorByName, findItemByName, normText, photoFile, matchVendor, makeCtx };
+module.exports = { nameKey, okAutoVendorName, okAutoItemName, findVendorByName, findItemByName, normText, photoFile, matchVendor, makeCtx };

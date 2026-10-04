@@ -16,6 +16,15 @@
     else ok = !missing && near(round2(sum + (tax == null ? 0 : tax)), total) && (subtotal == null || near(sum, subtotal));
     return { sum: sum, ok: ok, missing: missing };
   }
-  var Rules = { round2: round2, near: near, sumCheck: sumCheck };
+  /* 名稱比對與自動建檔門檻（前後端共用，Eason 2026-10-04）。
+     nameKey：控制字元→空白→trim→NFKC（全形轉半形）→去所有空白→去括號 （）()［］[] 與「・·」→小寫。廠商、品項同一支。 */
+  function cleanName(s) { return String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim(); }
+  function nameKey(s) { return cleanName(s).normalize('NFKC').replace(/[\s()\[\]・·･]/g, '').toLowerCase(); }
+  var PURE_NUM_RE = /^[\d\s.,\-+*\/%$]+$/;
+  var ITEM_STOP_WORDS = ['合計', '小計', '總計', '總額', '稅額', '營業稅', '折扣', '折讓', '運費', '備註', '找零'];
+  /* 自動建立門檻：長度 2–60、非純數字／標點；品項另外不可等於或包含合計類字樣 */
+  function okAutoVendorName(name) { var n = cleanName(name); return n.length >= 2 && n.length <= 60 && !PURE_NUM_RE.test(n); }
+  function okAutoItemName(name) { var n = cleanName(name); return okAutoVendorName(n) && !ITEM_STOP_WORDS.some(function (w) { return n.indexOf(w) >= 0; }); }
+  var Rules = { round2: round2, near: near, sumCheck: sumCheck, nameKey: nameKey, okAutoVendorName: okAutoVendorName, okAutoItemName: okAutoItemName };
   if (typeof module !== 'undefined' && module.exports) module.exports = Rules; else root.Rules = Rules;
 })(typeof window !== 'undefined' ? window : this);

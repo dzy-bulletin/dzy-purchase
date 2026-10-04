@@ -229,7 +229,8 @@ module.exports = function register(ctx) {
 
   // ---------- 品名表 ----------
   const itemOut = (r) => ({ id: r.id, name: r.name, category: r.category, base_unit: r.base_unit, active: r.active ? 1 : 0, brand_id: r.brand_id, auto_created: r.auto_created ? 1 : 0, needs_category: r.category == null ? 1 : 0 });
-  const category = (v) => { if (!CATEGORIES.includes(v)) throw new ApiError('BAD_INPUT', `類別只能是 ${CATEGORIES.join('、')}`); return v; };
+  const category = (v) => { if (v == null || v === '') throw new ApiError('BAD_INPUT', '請選擇類別');
+  if (!CATEGORIES.includes(v)) throw new ApiError('BAD_INPUT', `類別只能是 ${CATEGORIES.join('、')}`); return v; };
 
   route('GET', /^\/items$/, ['accountant', 'admin'], async ({ p, url }) => {
     const brand = brandOf(p, url.searchParams.get('brand_id') || undefined, false);
@@ -247,7 +248,7 @@ module.exports = function register(ctx) {
     if (db.prepare('SELECT 1 FROM items WHERE brand_id = ? AND name = ?').get(brand, name)) throw new ApiError('CONFLICT', '這個品名已存在');
     return db.tx(() => {
       const id = db.prepare('INSERT INTO items (brand_id, name, category, base_unit, active) VALUES (?,?,?,?,?)')
-        .run(brand, name, category(b.category), text(b.base_unit, '統一單位', 20), bool(b.active, 1)).lastInsertRowid;
+        .run(brand, name, category(b.category), (String(b.base_unit == null ? '' : b.base_unit).trim().slice(0, 20) || null), bool(b.active, 1)).lastInsertRowid;
       const row = db.prepare('SELECT * FROM items WHERE id = ?').get(Number(id));
       audit(db, who(p), 'item_create', null, null, itemOut(row));
       return itemOut(row);
@@ -263,7 +264,7 @@ module.exports = function register(ctx) {
         if (db.prepare('SELECT 1 FROM items WHERE brand_id = ? AND name = ? AND id <> ?').get(it.brand_id, set.name, it.id)) throw new ApiError('CONFLICT', '這個品名已存在');
       }
       if (b.category !== undefined) set.category = category(b.category);
-      if (b.base_unit !== undefined) set.base_unit = text(b.base_unit, '統一單位', 20);
+      if (b.base_unit !== undefined) { const u = String(b.base_unit == null ? '' : b.base_unit).trim().slice(0, 20); set.base_unit = u || null; }   // 統一單位可留空（之後再補）
       if (b.active !== undefined) set.active = bool(b.active);
       const cols = Object.keys(set);
       if (cols.length) db.prepare(`UPDATE items SET ${cols.map((c) => c + ' = ?').join(', ')} WHERE id = ?`).run(...cols.map((c) => set[c]), it.id);

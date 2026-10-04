@@ -199,3 +199,43 @@ test('遷移 v10：既有 v9 資料庫（含已入帳資料、既有品項）安
   assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM items').get().c, 4);
   db.close(); fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('nameKey：全形空白、括號、全半形視同；自動建立門檻', () => {
+  const { nameKey, okAutoItemName, okAutoVendorName } = require('../server/slips-common');
+  assert.strictEqual(nameKey('新 品'), nameKey('新品'));
+  assert.strictEqual(nameKey('新　品'), nameKey('新品'));
+  assert.strictEqual(nameKey('新來源(食品)'), nameKey('新來源（食品）'));
+  assert.strictEqual(nameKey('ＡＢＣ［甲］・乙'), nameKey('abc甲乙'));
+  for (const bad of ['甲', '', '123', '1,200.5', '- -', '合計', '小計金額', '運費', 'x'.repeat(61)]) assert.strictEqual(okAutoItemName(bad), false, bad);
+  assert.strictEqual(okAutoItemName('高麗菜'), true);
+  assert.strictEqual(okAutoVendorName('12'), false); assert.strictEqual(okAutoVendorName('合計行'), true); assert.strictEqual(okAutoVendorName('x'.repeat(60)), true);
+});
+
+test('入帳：門檻不合的品項不建（item_id NULL）、括號全形比對沿用既有、廠商不合格不建', async () => {
+  const t = await startApp();
+  try {
+    const db = t.app.db;
+    const acc = await t.login('acc-c', PASS.SEED_PASS_ACC_C);
+    db.prepare("INSERT INTO items (brand_id, name, category, base_unit) VALUES ('C','新來源（食品）','食材','包')").run();
+    const id = mkReview(db, { vendorRaw: '88', lines: [L('新來源(食品)', 10), L('合計', 5), L('甲', 5), L('300', 5), L('新　品', 5), L('新品', 5)] });
+    assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: acc })).ok, true);
+    const ls = db.prepare('SELECT raw_name, item_id FROM slip_lines WHERE slip_id = ? ORDER BY seq').all(id);
+    assert.deepStrictEqual(ls.map((l) => l.item_id == null), [false, true, true, true, false, false]);
+    assert.strictEqual(ls[4].item_id, ls[5].item_id);
+    assert.strictEqual(itemsOf(db, 'C').length, 1);
+    assert.strictEqual(db.prepare('SELECT vendor_id v FROM slips WHERE id = ?').get(id).v, null);
+    assert.strictEqual(vendorsOf(db, 'C').length, 0);
+  } finally { await t.close(); }
+});
+
+test('開庫冪等修正 sqlite_sequence：seq 不小於 MAX(id)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seq-'));
+  let db = openDb(dir);
+  db.prepare("INSERT OR IGNORE INTO brands (id,name) VALUES ('C','央廚')").run();
+  db.prepare("INSERT INTO items (brand_id, name, category, base_unit) VALUES ('C','a','食材','個')").run();
+  db.prepare("INSERT INTO items (brand_id, name, category, base_unit) VALUES ('C','b','食材','個')").run();
+  db.prepare("UPDATE sqlite_sequence SET seq = 0 WHERE name = 'items'").run();
+  db.close(); db = openDb(dir);
+  assert.strictEqual(db.prepare("SELECT seq FROM sqlite_sequence WHERE name='items'").get().seq, 2);
+  db.close(); fs.rmSync(dir, { recursive: true, force: true });
+});
