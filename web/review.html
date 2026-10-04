@@ -100,7 +100,7 @@
 var STATUS_TEXT = { uploaded: '已送出', queued: '排隊中', recognizing: '辨識中', review: '待核對', confirmed: '已入帳', failed: '辨識失敗', returned: '退回重拍' };
 var FLAG = {   // 代碼 → [顏色, 中文原因]
   DATE_FIXED: ['y', '日期已自動補上（讀不出或年份離拍照日太遠），請對照照片確認'], AMOUNT_FIXED: ['y', '金額漏零，已改用數量×單價'],
-  AMOUNT_MISMATCH: ['r', '數量×單價≠金額'], SUM_MISMATCH: ['r', '各列加總≠總額'], PRICE_MISSING: ['r', '缺單價'],
+  AMOUNT_MISMATCH: ['r', '數量×單價≠金額'], SUM_MISMATCH: ['r', '品項加總對不上總額'], PRICE_MISSING: ['r', '缺單價'],
   HANDWRITTEN: ['y', '有手寫修改'], ITEM_UNMAPPED: ['y', '品名還沒對到統一品名'], UNIT_UNCONVERTED: ['y', '這個單位還沒設定換算']
 };
 var RED = { AMOUNT_MISMATCH: 1, SUM_MISMATCH: 1, PRICE_MISSING: 1 };
@@ -345,6 +345,17 @@ function calc() {
   var c = Rules.sumCheck(cur.lines.map(function (l) { return l.amount; }), cur.subtotal, cur.tax, cur.total);
   return { sum: c.sum, sumOk: c.ok, missing: c.missing };
 }
+/* 總額對不上時給會計看的白話說明（規則：品項加總＋稅額＝總額；未稅合計只核對） */
+function sumWhy(c) {
+  if (c.missing) return '總額或某一列金額沒有填，請對照照片補上。';
+  var tax = cur.tax || 0, should = r2(c.sum + tax);
+  if (Math.abs(should - cur.total) >= 0.01) {
+    var diff = fmt(r2(Math.abs(should - cur.total)));
+    if (cur.tax != null) return '品項加總 ' + fmt(c.sum) + ' ＋ 稅額 ' + fmt(tax) + ' ＝ ' + fmt(should) + '，但單上總額是 ' + fmt(cur.total) + '，差 ' + diff + '。請檢查是不是多算了一列（例如把稅額或合計當成品項），或某一列金額讀錯。';
+    return '品項加總 ' + fmt(c.sum) + '，但單上總額是 ' + fmt(cur.total) + '，差 ' + diff + '。請檢查是不是多算或少算了一列，或某一列金額讀錯；如果單上另外列了稅額，請填在「稅額」欄。';
+  }
+  return '品項加總 ' + fmt(c.sum) + '，但單上的未稅合計是 ' + fmt(cur.subtotal) + '，差 ' + fmt(r2(Math.abs(c.sum - cur.subtotal))) + '。請檢查品項金額，或未稅合計是不是填錯。';
+}
 function update() {
   var c = calc(), reds = 0, unchecked = 0;
   cur.lines.forEach(function (l, i) {
@@ -361,7 +372,7 @@ function update() {
   $('slipWhy').innerHTML = sf.map(function (x) { var m = FLAG[x] || ['y', x]; var t = (x === 'DATE_FIXED' && cur.date_note) ? cur.date_note + '，請對照照片確認' : m[1]; return '<span class="y">黃：' + esc(t) + '</span>'; }).join('　');
   $('sum').className = 'sum ' + (c.sumOk ? 'good' : 'bad');
   $('sum').innerHTML = '各列加總 <b>' + fmt(c.sum) + '</b>' + (cur.tax != null ? '　稅額 <b>' + fmt(cur.tax) + '</b>' : '') + '　總額 <b>' + (cur.total == null ? '（未填）' : fmt(cur.total)) + '</b>　' +
-    (c.sumOk ? '<b>相符</b>' : '<b class="r">紅：' + (c.missing ? '總額或某列金額沒填' : '各列加總（＋稅額）≠總額（差 ' + fmt(r2(c.sum + (cur.tax || 0) - cur.total)) + '）') + '</b>');
+    (c.sumOk ? '<b>相符</b>' : '<div class="r" style="margin-top:.4rem;line-height:1.6">紅：' + esc(sumWhy(c)) + '</div>');
   cur._reds = reds + (slipRed ? 1 : 0); cur._unchecked = unchecked;
   var blocked = cur._reds > 0 || unchecked > 0 || !cur.lines.length;
   var b = $('confirmBtn');
