@@ -13,7 +13,7 @@
 - 數量、單價、金額、總額必須大於 0（P1 不支援退貨負數）；入帳要求總額與每列數量／單價／金額都有值。
 - 「退回重拍」的貨單會計不能直接改，需先 `POST /slips/:id/reopen`（保留退回原因、寫 audit）。
 - 「辨識失敗」的貨單會計可 `POST /slips/:id/retry`（會計／admin，同品牌，僅 failed 可用）：回到排隊、重試次數歸零、清除錯誤、寫 audit `retry`。
-- 會計在核對畫面輸入的日期只收 `YYYY-MM-DD` 與民國 `YYY-MM-DD`／`YYY/MM/DD`，其他回 BAD_INPUT「日期格式看不懂，請重新輸入」；儲存送出的日期視為人工確認，移除 DATE_FIXED。總額規則：各列金額加總＋稅額（空白＝0）＝總額，未稅合計只核對（前後端共用 `web/js/rules.js`）。
+- 會計在核對畫面輸入的日期只收 `YYYY-MM-DD` 與民國 `YYY-MM-DD`／`YYY/MM/DD`，其他回 BAD_INPUT「日期格式看不懂，請重新輸入」；儲存送出的日期視為人工確認，移除 DATE_FIXED。總額規則（**一張單只套一條式子，不是 OR**，前後端共用 `web/js/rules.js` 的 `sumCheck`）：`slips.tax_included=0`（預設）＝各列金額加總＋稅額（空白＝0）＝總額，未稅合計只核對≈各列加總；`tax_included=1`（品項金額已含稅）＝各列金額加總＝總額，且未稅合計與稅額**都有值**時須未稅合計＋稅額＝總額（只填其中一個或都空白時不核對）。細節見下方「品項金額已含稅」。
 - 辨識單次逾時 `OLLAMA_TIMEOUT_S`（預設 300 秒，可設小數）。
 
 ## 帳號與密碼（首次登入強制改密碼）
@@ -23,6 +23,13 @@
 - `POST /password`：body `{old_password, new_password}`，**所有角色（含 admin）隨時可用**。新密碼至少 6 字、不可與舊密碼相同、舊密碼要對（皆回 `BAD_INPUT`）。成功：旗標清 0、該帳號**所有** session 作廢、回新的 `{token, expires_at, must_change_password:false}`（前端換掉 token 即可繼續使用）。
 - 密碼與雜湊不進 log、不進 audit（audit 只記 `password_change`／`password_changed: true`）。
 - 前端四頁（upload／review／reports／admin）：登入後或任一 API 回 `PASSWORD_CHANGE_REQUIRED` 會顯示「第一次登入請設定你自己的密碼」；側欄底部與上傳頁標題列有「改密碼」。
+
+## 品項金額已含稅（migration v9，Eason 2026-10-04）
+有些廠商的貨單各列金額已含稅（各列加總＝含稅總額，單上另印未稅合計與稅額）。每張貨單有旗標 `tax_included`（0／1，核對頁稅額旁的勾選框「品項金額已含稅」，勾選即重算、隨 `PUT /slips/:id` 送出；只接受 0／1，其他回 BAD_INPUT）。
+- **廠商記憶**：`vendors.tax_included`。入帳時把該單旗標寫回廠商；辨識後處理新單時以廠商的值為預設，會計可改。
+- **成本**：兩種都以總額為成本；`tax_included=1` 時稅額**不再分攤**到各類別（類別合計＝總額）。報表、`legacy.xlsx`、損益推送、備份的總額都走 `calc.js`／`slips.total`，結果一致。
+- **單價比較一律未稅**：`tax_included=1` 的列，未稅金額＝金額 × (總額−稅額)÷總額（稅額空白或總額 0 → 1:1）；`unit_cost`、加權平均、價格變動提醒都用未稅金額，含稅與未稅廠商同品項不會產生假漲跌。每日明細的 `amount` 仍是單上原始金額。
+- **升級**：`git pull` ＋重啟即可，開庫時自動跑 v9（兩個 `ALTER TABLE ADD COLUMN ... DEFAULT 0`，交易內執行，失敗會回滾）；既有貨單與廠商一律 0＝原規則，不改任何既有數字。
 
 ## 計算說明（P2）
 - 統一單位：只有單位與品項的統一單位**完全相同**時才當 1；單位空白或沒設換算 → 標 `UNIT_UNCONVERTED`，不進加權平均與價格比較，金額照計入成本。

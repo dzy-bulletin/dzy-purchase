@@ -87,7 +87,7 @@ function makeApp(cfg, opts) {
 
   function detail(s) {
     const o = summary(s);
-    o.date_note = dateNote(s); o.doc_date = s.doc_date; o.subtotal = s.subtotal; o.tax = s.tax; o.total_handwritten = s.total_handwritten ? 1 : 0;
+    o.date_note = dateNote(s); o.doc_date = s.doc_date; o.subtotal = s.subtotal; o.tax = s.tax; o.tax_included = s.tax_included ? 1 : 0; o.total_handwritten = s.total_handwritten ? 1 : 0;
     o.handwritten_note = s.handwritten_note; o.confirmed_by = s.confirmed_by; o.ai_model = s.ai_model; o.ai_seconds = s.ai_seconds; o.attempts = s.attempts;
     o.photos = db.prepare('SELECT seq FROM slip_photos WHERE slip_id = ? ORDER BY seq').all(s.id).map((p) => ({ seq: p.seq, url: `${PREFIX}/photos/${s.id}/${p.seq}` }));
     o.lines = linesOf(s.id).map((l) => ({ id: l.id, seq: l.seq, raw_name: l.raw_name, item_id: l.item_id, qty: l.qty, unit: l.unit, unit_price: l.unit_price,
@@ -100,7 +100,7 @@ function makeApp(cfg, opts) {
   function recheck(s) {
     const lines = linesOf(s.id);
     const ctx = makeCtx(db, s.brand_id, s.vendor_id);
-    const r = evaluate({ total: s.total, subtotal: s.subtotal, tax: s.tax, handwritten_note: s.handwritten_note, flags: parseFlags(s.flags) }, lines, ctx);
+    const r = evaluate({ total: s.total, subtotal: s.subtotal, tax: s.tax, tax_included: s.tax_included, handwritten_note: s.handwritten_note, flags: parseFlags(s.flags) }, lines, ctx);
     const up = db.prepare('UPDATE slip_lines SET flags = ? WHERE id = ?');
     r.lines.forEach((l) => up.run(JSON.stringify(l.flags), l.id));
     db.prepare('UPDATE slips SET flags = ? WHERE id = ?').run(JSON.stringify(r.flags), s.id);
@@ -273,6 +273,10 @@ function makeApp(cfg, opts) {
       if (b.total !== undefined) set.total = num(b.total, 'total', 'pos');
       if (b.tax !== undefined) set.tax = num(b.tax, 'tax', 'nonneg');
       if (b.subtotal !== undefined) set.subtotal = num(b.subtotal, 'subtotal', 'pos');
+      if (b.tax_included !== undefined) {
+        if (![0, 1, true, false].includes(b.tax_included)) throw new ApiError('BAD_INPUT', 'tax_included 只能是 0 或 1');
+        set.tax_included = b.tax_included ? 1 : 0;
+      }
       if (b.handwritten_note !== undefined) {
         const hn = b.handwritten_note == null ? '' : String(b.handwritten_note).trim().slice(0, 500);
         set.handwritten_note = hn || null;
@@ -340,6 +344,7 @@ function makeApp(cfg, opts) {
     if (miss >= 0) throw new ApiError('BAD_INPUT', `第 ${miss + 1} 列的數量、單價、金額都要填`);
     if (r.lines.some((l) => !l.checked)) throw new ApiError('CONFLICT', '還有明細列沒打勾');
     db.prepare("UPDATE slips SET status='confirmed', confirmed_at=?, confirmed_by=? WHERE id=?").run(isoNow(), A.whoOf(p), s.id);
+    if (cur.vendor_id) db.prepare('UPDATE vendors SET tax_included = ? WHERE id = ?').run(cur.tax_included ? 1 : 0, cur.vendor_id);   // 廠商記憶：入帳時把這張的旗標寫回廠商
     // 廠商記憶：有對到統一品名的列，記下「廠商＋原始寫法 → 品名」；再算價格變動提醒（先清掉舊的，避免重複）
     if (cur.vendor_id) {
       const up = db.prepare('INSERT OR REPLACE INTO item_aliases (vendor_id, raw_name, item_id) VALUES (?,?,?)');

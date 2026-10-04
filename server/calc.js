@@ -45,7 +45,7 @@ function confirmedLines(db, opts) {
   if (opts.slipId) { w.push('s.id = ?'); a.push(opts.slipId); }
   if (opts.excludeSlipId) { w.push('s.id <> ?'); a.push(opts.excludeSlipId); }
   const rows = db.prepare(`SELECT l.id line_id, l.seq, l.slip_id, l.raw_name, l.item_id, l.qty, l.unit, l.unit_price, l.amount,
-      s.doc_date, s.confirmed_at, s.store_id, s.vendor_id, s.vendor_name_raw, s.brand_id, s.tax, s.total,
+      s.doc_date, s.confirmed_at, s.store_id, s.vendor_id, s.vendor_name_raw, s.brand_id, s.tax, s.total, s.tax_included,
       i.name item_name, i.category, i.base_unit
     FROM slip_lines l JOIN slips s ON s.id = l.slip_id LEFT JOIN items i ON i.id = l.item_id
     WHERE ${w.join(' AND ')} ORDER BY s.doc_date, s.confirmed_at, s.id, l.seq`).all(...a);
@@ -59,13 +59,19 @@ function withBase(r, conv) {
   if (r.item_id != null) f = factorOf(conv, r.item_id, r.unit, r.base_unit);
   const ok = f != null && r.qty > 0 && r.amount != null;
   const base = ok ? r.qty * f : null;
-  return Object.assign({}, r, { converted: ok, base_qty: ok ? Math.round(base * 10000) / 10000 : null, unit_cost: ok ? round2(r.amount / base) : null });
+  // 單價比較基準一律未稅：tax_included=1 的單，未稅金額＝金額 × (總額−稅額)÷總額；稅額空白或總額 0 → 1:1
+  const net = r.amount == null ? null : r.amount * netRatio(r);
+  return Object.assign({}, r, { converted: ok, base_qty: ok ? Math.round(base * 10000) / 10000 : null, net_amount: net, unit_cost: ok ? round2(net / base) : null });
+}
+function netRatio(s) {
+  if (!s.tax_included || s.tax == null || !(s.total > 0)) return 1;
+  return (s.total - s.tax) / s.total;
 }
 
 // 加權平均 avg = Σamount ÷ Σbase_qty（只算已換算的列）；無資料回 null
 function weightedAvg(lines) {
   let amt = 0, qty = 0;
-  for (const l of lines) if (l.converted) { amt += cents(l.amount); qty += l.base_qty; }
+  for (const l of lines) if (l.converted) { amt += cents(l.net_amount); qty += l.base_qty; }
   return qty > 0 ? round2(fromCents(amt) / qty) : null;
 }
 function avgFor(db, brandId, itemId, month, months) {
@@ -94,12 +100,12 @@ function slipCosts(db, opts) {
   const bySlip = new Map();
   for (const l of lines) {
     let s = bySlip.get(l.slip_id);
-    if (!s) { s = { slip_id: l.slip_id, doc_date: l.doc_date, store_id: l.store_id, vendor_id: l.vendor_id, vendor_name_raw: l.vendor_name_raw, brand_id: l.brand_id, tax: l.tax || 0, cats: {} }; COST_CATS.forEach((c) => { s.cats[c] = 0; }); bySlip.set(l.slip_id, s); }
+    if (!s) { s = { slip_id: l.slip_id, doc_date: l.doc_date, store_id: l.store_id, vendor_id: l.vendor_id, vendor_name_raw: l.vendor_name_raw, brand_id: l.brand_id, tax: l.tax || 0, tax_included: l.tax_included ? 1 : 0, cats: {} }; COST_CATS.forEach((c) => { s.cats[c] = 0; }); bySlip.set(l.slip_id, s); }
     s.cats[CATEGORIES.includes(l.category) ? l.category : '未分類'] += cents(l.amount || 0);
   }
   const out = [];
   for (const s of bySlip.values()) {
-    const cats = allocateTax(s.cats, cents(s.tax));
+    const cats = s.tax_included ? s.cats : allocateTax(s.cats, cents(s.tax));   // 已含稅：各列金額加總＝總額，稅額不再分攤
     out.push(Object.assign(s, { cats, total_cents: COST_CATS.reduce((t, c) => t + cats[c], 0) }));
   }
   return out;

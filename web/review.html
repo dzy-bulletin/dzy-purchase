@@ -43,6 +43,9 @@
   .detail{flex:1;overflow:auto;padding:1.2rem .8rem;min-width:0}
   .head{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.8rem;margin-top:.8rem}
   .head .wide{grid-column:1/-1}
+  .taxbox{display:flex;flex-direction:column;gap:.35rem}
+  .taxinc{display:flex;align-items:center;gap:.4rem;font-size:.82rem;color:var(--sub);cursor:pointer}
+  .taxinc input{width:auto;margin:0}
   .why{font-size:.8rem;margin-top:.15rem}
   .why .r{font-weight:500}
   .sum{margin:1rem 0;padding:.7rem .9rem;border:1px solid var(--line);background:var(--panel);border-radius:var(--card)}
@@ -179,7 +182,8 @@ function render() {
     '<label class="f">日期<input id="f_date" value="' + esc(d.doc_date || '') + '" placeholder="YYYY-MM-DD" ' + dis + '></label>' +
     '<label class="f">單號<input id="f_no" value="' + esc(d.doc_no || '') + '" ' + dis + '></label>' +
     '<label class="f">未稅合計（沒有就留空）<input id="f_subtotal" inputmode="decimal" value="' + (d.subtotal == null ? '' : d.subtotal) + '" ' + dis + '></label>' +
-    '<label class="f">稅額（沒有就留空）<input id="f_tax" inputmode="decimal" value="' + (d.tax == null ? '' : d.tax) + '" ' + dis + '></label>' +
+    '<div class="taxbox"><label class="f">稅額（沒有就留空）<input id="f_tax" inputmode="decimal" value="' + (d.tax == null ? '' : d.tax) + '" ' + dis + '></label>' +
+    '<label class="taxinc"><input type="checkbox" id="f_taxinc" ' + (d.tax_included ? 'checked ' : '') + dis + '>品項金額已含稅</label></div>' +
     '<label class="f">總額（含稅，入帳以此為準）<input id="f_total" inputmode="decimal" value="' + (d.total == null ? '' : d.total) + '" ' + dis + '></label>' +
     '<label class="f wide">手寫說明（清空＝取消手寫標記）<input id="f_hand" value="' + esc(d.handwritten_note || '') + '" ' + dis + '></label></div>' +
     (d.total_handwritten ? '<div class="hand">總額有手寫修正，請對照照片確認</div>' : '') +
@@ -195,6 +199,7 @@ function render() {
 function bindHead() {
   var map = { f_vendor: 'vendor_name', f_date: 'doc_date', f_no: 'doc_no', f_total: 'total', f_subtotal: 'subtotal', f_tax: 'tax', f_hand: 'handwritten_note' };
   var numeric = { f_total: 1, f_subtotal: 1, f_tax: 1 };
+  $('f_taxinc').onchange = function () { cur.tax_included = this.checked ? 1 : 0; dirty = true; update(); };   /* 勾選即重算，隨儲存（PUT）送出 */
   Object.keys(map).forEach(function (id) {
     $(id).oninput = function () { cur[map[id]] = numeric[id] ? num(this.value) : this.value; dirty = true; update(); };
   });
@@ -341,13 +346,18 @@ function lineFlags(l) {
 /* 數量、單價、金額都要填且 > 0（後端同規則；缺值本身就是紅） */
 function lineBad(l) { return l.qty == null || l.unit_price == null || l.amount == null || l.qty <= 0 || l.unit_price <= 0 || l.amount <= 0; }
 function calc() {
-  /* 與後端同一支 web/js/rules.js：各列金額加總＋稅額（空白＝0）＝總額；未稅合計只核對≈各列加總 */
-  var c = Rules.sumCheck(cur.lines.map(function (l) { return l.amount; }), cur.subtotal, cur.tax, cur.total);
+  /* 與後端同一支 web/js/rules.js；一張單只套一條式子：未勾＝各列加總＋稅額（空白＝0）＝總額（未稅合計只核對≈各列加總）；已勾＝各列加總＝總額（未稅合計＋稅額都有值時須＝總額） */
+  var c = Rules.sumCheck(cur.lines.map(function (l) { return l.amount; }), cur.subtotal, cur.tax, cur.total, cur.tax_included ? 1 : 0);
   return { sum: c.sum, sumOk: c.ok, missing: c.missing };
 }
 /* 總額對不上時給會計看的白話說明（規則：品項加總＋稅額＝總額；未稅合計只核對） */
 function sumWhy(c) {
   if (c.missing) return '總額或某一列金額沒有填，請對照照片補上。';
+  if (cur.tax_included) {
+    if (Math.abs(c.sum - cur.total) >= 0.01) return '品項加總 ' + fmt(c.sum) + '，但單上總額是 ' + fmt(cur.total) + '，差 ' + fmt(r2(Math.abs(c.sum - cur.total))) + '。這張單已勾選「品項金額已含稅」，品項加總應該直接等於總額；請檢查是不是多算或少算了一列，或某一列金額讀錯。如果單上品項金額其實是未稅，請取消勾選。';
+    var us = r2(cur.subtotal + cur.tax);
+    return '未稅合計 ' + fmt(cur.subtotal) + ' ＋ 稅額 ' + fmt(cur.tax) + ' ＝ ' + fmt(us) + '，但總額是 ' + fmt(cur.total) + '，差 ' + fmt(r2(Math.abs(us - cur.total))) + '。請檢查未稅合計、稅額、總額有沒有填錯。';
+  }
   var tax = cur.tax || 0, should = r2(c.sum + tax);
   if (Math.abs(should - cur.total) >= 0.01) {
     var diff = fmt(r2(Math.abs(should - cur.total)));
@@ -394,7 +404,7 @@ function buildActions() {
 }
 function say(t, cls) { var m = $('actMsg'); if (m) m.innerHTML = '<div class="msg ' + cls + '">' + esc(t) + '</div>'; }
 function payload() {
-  return { vendor_name: cur.vendor_name, doc_date: cur.doc_date, doc_no: cur.doc_no, total: cur.total, subtotal: cur.subtotal, tax: cur.tax, handwritten_note: cur.handwritten_note || '',
+  return { vendor_name: cur.vendor_name, doc_date: cur.doc_date, doc_no: cur.doc_no, total: cur.total, subtotal: cur.subtotal, tax: cur.tax, tax_included: cur.tax_included ? 1 : 0, handwritten_note: cur.handwritten_note || '',
     lines: cur.lines.map(function (l, i) { return { id: l.id, seq: i + 1, raw_name: l.raw_name, item_id: l.item_id || null, qty: l.qty, unit: l.unit, unit_price: l.unit_price, amount: l.amount, checked: l.checked ? 1 : 0 }; }) };
 }
 async function save() {

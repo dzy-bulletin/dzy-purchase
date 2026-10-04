@@ -98,7 +98,7 @@ function evaluate(slip, lines, ctx) {
   for (const k of STICKY_SLIP) if ((slip.flags || []).includes(k)) sf.add(k);
   if (handwrittenText(slip.handwritten_note)) sf.add('HANDWRITTEN');
   // 總額規則（plan.md 共用契約）：各列加總＋稅額（空白＝0）＝總額；subtotal 只核對≈各列加總。缺值本身就是紅。
-  if (outLines.length && !sumCheck(outLines.map((l) => l.amount), slip.subtotal, slip.tax, slip.total).ok) sf.add('SUM_MISMATCH');
+  if (outLines.length && !sumCheck(outLines.map((l) => l.amount), slip.subtotal, slip.tax, slip.total, slip.tax_included ? 1 : 0).ok) sf.add('SUM_MISMATCH');
   return { lines: outLines, flags: sortFlags(sf) };
 }
 
@@ -111,7 +111,7 @@ function postprocess(ai, shotDate, ctx) {
     doc_date: d.date, doc_no: String(ai.doc_no == null ? '' : ai.doc_no).trim(),
     vendor_name: String(ai.vendor == null ? '' : ai.vendor).trim(),
     subtotal: pos(parseNum(ai.subtotal)), tax: pos(parseNum(ai.tax)), total: pos(parseNum(ai.total)),
-    total_handwritten: hand ? 1 : 0, handwritten_note: hand,
+    total_handwritten: hand ? 1 : 0, handwritten_note: hand, tax_included: ctx && ctx.taxIncluded ? 1 : 0,
     flags: [].concat(d.fixed ? ['DATE_FIXED'] : [], hand ? ['HANDWRITTEN'] : [])
   };
   const rawLines = (Array.isArray(ai.lines) ? ai.lines : []).filter((x) => x && typeof x === 'object');

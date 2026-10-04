@@ -112,10 +112,13 @@ function createWorker({ db, cfg, recognize, log }) {
         vendorId = matchVendor(db, slip.brand_id, aiVendor);
         if (!vendorId && !vendorRaw && aiVendor) vendorRaw = aiVendor;
       }
-      const r = postprocess(ai, shot, makeCtx(db, slip.brand_id, vendorId, true));
-      db.prepare(`UPDATE slips SET status='review', vendor_id=?, vendor_name_raw=?, doc_date=?, doc_no=?, subtotal=?, tax=?, total=?,
+      const vrow = vendorId ? db.prepare('SELECT tax_included FROM vendors WHERE id = ?').get(vendorId) : null;   // 廠商記憶：新單的「品項金額已含稅」預設值
+      const ctx = makeCtx(db, slip.brand_id, vendorId, true);
+      ctx.taxIncluded = vrow && vrow.tax_included ? 1 : 0;
+      const r = postprocess(ai, shot, ctx);
+      db.prepare(`UPDATE slips SET status='review', vendor_id=?, vendor_name_raw=?, doc_date=?, doc_no=?, subtotal=?, tax=?, total=?, tax_included=?,
                   total_handwritten=?, handwritten_note=?, flags=?, date_note=?, ai_raw=?, ai_model=?, ai_seconds=?, error=NULL WHERE id=?`)
-        .run(vendorId, vendorRaw, r.doc_date, r.doc_no, r.subtotal, r.tax, r.total, r.total_handwritten, r.handwritten_note,
+        .run(vendorId, vendorRaw, r.doc_date, r.doc_no, r.subtotal, r.tax, r.total, r.tax_included, r.total_handwritten, r.handwritten_note,
              JSON.stringify(r.flags), r.date_note, text, cfg.MODEL, Math.round(seconds * 10) / 10, slip.id);
       db.prepare('DELETE FROM slip_lines WHERE slip_id = ?').run(slip.id);
       const ins = db.prepare('INSERT INTO slip_lines (slip_id, seq, raw_name, item_id, qty, unit, unit_price, amount, flags, checked, edited_by_human) VALUES (?,?,?,?,?,?,?,?,?,0,0)');

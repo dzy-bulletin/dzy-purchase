@@ -83,7 +83,10 @@ const MIGRATIONS = [
   `ALTER TABLE stores ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;
    ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;
    UPDATE stores SET must_change_password = 1;
-   UPDATE users SET must_change_password = CASE WHEN role = 'admin' THEN 0 ELSE 1 END;`
+   UPDATE users SET must_change_password = CASE WHEN role = 'admin' THEN 0 ELSE 1 END;`,
+  // v9（品項金額已含稅，Eason 2026-10-04）：slips.tax_included＝這張單各列金額是否已含稅；vendors.tax_included＝廠商記憶（新單預設值）。既有資料一律 0＝原規則
+  `ALTER TABLE slips ADD COLUMN tax_included INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE vendors ADD COLUMN tax_included INTEGER NOT NULL DEFAULT 0;`
 ];
 
 function openDb(dataDir) {
