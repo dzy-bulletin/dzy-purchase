@@ -115,7 +115,7 @@ function makeApp(cfg, opts) {
   route('POST', /^\/login$/, null, async ({ req }) => {
     const raw = await readBody(req, 64 * 1024);
     const b = parseJson(raw);
-    const r = A.login(db, b.account, b.password, now());
+    const r = A.login(db, b.account, b.password, now(), { storeLoginOff: cfg.STORE_LOGIN_OFF });
     const p = r.principal;
     return { token: r.token, expires_at: r.expires_at, role: p.role, must_change_password: p.must_change_password, name: p.name, brand: p.brand_id, brand_id: p.brand_id, brands: p.brands, store_id: p.store_id, store: p.kind === 'store' ? { id: p.id, code: p.code, name: p.name } : null };
   });
@@ -467,7 +467,14 @@ function makeApp(cfg, opts) {
         if (r.method !== req.method) continue;
         let p = null;
         if (r.roles) {
-          p = A.authenticate(db, req, now()); A.requireRole(p, ...r.roles);
+          const sp = cfg.STORE_SVC_KEY || req.headers['x-store-key'] !== undefined ? A.authenticateServiceKey(db, req, cfg.STORE_SVC_KEY) : null;
+          if (sp) {                                                  // 服務金鑰通道：只放行上傳與查自己
+            const ok = (req.method === 'POST' && sub === '/slips') || (req.method === 'GET' && sub === '/slips' && url.searchParams.get('mine') === '1');
+            if (!ok) throw new ApiError('FORBIDDEN', '服務金鑰只能用於上傳貨單與查詢自己門市的貨單');
+            p = sp; A.requireRole(p, ...r.roles);
+          } else {
+            p = A.authenticate(db, req, now(), { storeLoginOff: cfg.STORE_LOGIN_OFF }); A.requireRole(p, ...r.roles);
+          }
           if (p.must_change_password && sub !== '/password' && sub !== '/logout') throw new ApiError('PASSWORD_CHANGE_REQUIRED', '第一次登入請先設定你自己的密碼');
         }
         const out = await r.fn({ req, res, p, m, url });

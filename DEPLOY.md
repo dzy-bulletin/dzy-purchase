@@ -708,3 +708,23 @@ curl -s --max-time 10 http://127.0.0.1:8793/health | python3 -c 'import json,sys
 ```
 
 **`~/dzy-purchase-data`（含 `purchase.db` 與全部貨單照片）不要刪**——除非 Eason 明確說要刪；資料沒備份前不要動。
+
+## 門市營運系統通道（未啟用）
+
+新的「門市營運系統」代替門市呼叫本伺服器：門市在營運系統登入，營運系統帶服務金鑰＋門市代號呼叫貨單，貨單把它當作該門市在操作。**預設兩個設定都沒設＝完全不啟用，行為與現在一樣。**
+
+| 設定（環境變數／.env） | 用途 |
+|---|---|
+| `STORE_SVC_KEY` | 服務金鑰。未設或空字串＝通道關閉。有設時，請求帶 `X-Store-Key`（金鑰）＋`X-Store-Code`（門市代號，須存在且啟用）即視為該門市。**只放行** `POST /purchase/api/slips`（上傳）與 `GET /purchase/api/slips?mine=1`（查自己 30 天），其他路由一律 403；金鑰錯、門市代號不存在或停用回 401。 |
+| `STORE_LOGIN_OFF` | 設為 `1` 時，門市帳號的密碼登入回 403「門市請改用門市營運系統登入」，已存在的門市 session 也立即失效；會計與管理者登入完全不受影響。其他值＝關閉。 |
+
+**金鑰由 Eason 在 Mac mini 自己的終端機寫進 `.env`（Claude 不經手、不讀、不印金鑰）**，例如：
+
+```sh
+# 在 Mac mini 終端機，由 Eason 親自執行；金鑰用隨機長字串，並同步放進門市營運系統那邊的設定
+cd ~/mala-purchase && printf 'STORE_SVC_KEY=%s\n' "$(openssl rand -hex 32)" >> .env
+# 想關掉門市密碼登入時再加：  echo 'STORE_LOGIN_OFF=1' >> .env
+launchctl kickstart -k "gui/$(id -u)/com.dzy.purchase"    # 重啟生效
+```
+
+回退：從 `.env` 刪掉這兩行並重啟即恢復原狀。先確認營運系統通道運作正常，再開 `STORE_LOGIN_OFF`。

@@ -40,6 +40,8 @@ function loadConfig(envIn) {
     BACKUP_URL: env.BACKUP_URL || '',
     BACKUP_KEY: env.BACKUP_KEY || '',
     BACKUP_TIMEOUT_MS: num(env.BACKUP_TIMEOUT_MS, 90000),
+    STORE_SVC_KEY: env.STORE_SVC_KEY || '',                   // 門市營運系統服務金鑰；空＝通道關閉
+    STORE_LOGIN_OFF: env.STORE_LOGIN_OFF === '1',             // 1＝門市密碼登入關閉（改走門市營運系統）
     MAX_PHOTO_BYTES: 8 * 1024 * 1024,
     MAX_PHOTOS: 6,
     LOCK_AFTER: 5,
