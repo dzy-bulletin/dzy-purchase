@@ -56,8 +56,8 @@ test('正確金鑰：上傳成功、store_id 正確；查 mine=1 只看到自己
     const other = await t.call('GET', '/slips?mine=1', { headers: sk('M01') });
     assert.strictEqual(other.status, 200);
     assert.ok(!JSON.stringify(other.data).includes(r.data.id || '\u0000none'));
-    // 不帶 mine=1 照舊 400，不因金鑰放寬
-    assert.strictEqual((await t.call('GET', '/slips', { headers: sk('C01') })).status, 400);
+    // 不帶 mine=1 不在放行範圍 → 403
+    assert.strictEqual((await t.call('GET', '/slips', { headers: sk('C01') })).status, 403);
   } finally { await t.close(); }
 });
 
