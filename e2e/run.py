@@ -403,6 +403,19 @@ def ui_upload(page, S, D, s, how='normal'):
         ck(page, '#sendBtn', '送出（離線）')
         page.wait_for_function("()=>document.getElementById('msg').innerText.indexOf('目前送不出去')>=0", timeout=60000)
         check('離線送出：顯示已存在手機、連線後自動補傳', True)
+        page.wait_for_function("()=>document.getElementById('resTitle').innerText==='還沒送出'&&document.getElementById('resCard').classList.contains('r-warn')", timeout=60000)
+        check('離線送出：跳出黃色「還沒送出」視窗', '照片已經存在這支手機' in txt(page, '#resBody'), txt(page, '#resBody'))
+        shot(page, '02-門市上傳-還沒送出視窗')
+        scan(page, '上傳結果視窗（還沒送出）')
+        ck(page, '#resRetry', '還沒送出視窗：立即重試（仍離線）')
+        page.wait_for_function("()=>document.getElementById('resTitle').innerText==='還沒送出'", timeout=60000)
+        check('離線時按立即重試：仍顯示「還沒送出」', True)
+        ck(page, '#resOk', '還沒送出視窗：知道了')
+        check('按「知道了」後視窗關閉', page.evaluate("()=>document.getElementById('result').classList.contains('hidden')"))
+        ck(page, '#retryNow', '待送列：立即補傳（仍離線）')
+        page.wait_for_function("()=>/^還有 1 張沒送出/.test(document.getElementById('resTitle').innerText)", timeout=60000)
+        check('離線時按待送列的立即補傳：顯示「還有 1 張沒送出」', page.evaluate("()=>document.getElementById('resCard').classList.contains('r-warn')"))
+        ck(page, '#resOk', '還有沒送出視窗：知道了')
         page.wait_for_function("()=>!document.getElementById('pendingBar').classList.contains('hidden')")
         eq('離線送出：待送列顯示 1 張待送', txt(page, '#pendingText').strip(), '1 張待送')
         shot(page, '02-門市上傳-離線待送')
@@ -415,6 +428,10 @@ def ui_upload(page, S, D, s, how='normal'):
             ck(page, '#retryNow', '立即補傳')
         page.wait_for_function("()=>document.getElementById('pendingBar').classList.contains('hidden')", timeout=30000)
         check('離線補傳：恢復連線後待送列消失', True)
+        page.wait_for_function("()=>!document.getElementById('result').classList.contains('hidden')&&document.getElementById('resTitle').innerText==='補傳成功'", timeout=30000)
+        check('離線補傳：跳出綠色「補傳成功」視窗', page.evaluate("()=>document.getElementById('resCard').classList.contains('r-ok')"))
+        scan(page, '上傳結果視窗（補傳成功）')
+        ck(page, '#resOk', '補傳成功視窗：知道了')
     else:
         ck(page, '#sendBtn', '送出這張貨單')
         page.wait_for_function("()=>document.getElementById('msg').innerText.indexOf('已送出')>=0", timeout=30000)
@@ -422,6 +439,16 @@ def ui_upload(page, S, D, s, how='normal'):
     new = [r['id'] for r in S.q('SELECT id FROM slips') if r['id'] not in ids_before]
     eq(f'{s["idx"]}：上傳後伺服器多一張貨單', len(new), 1)
     s['sid'] = new[0]
+    if how != 'offline':
+        page.wait_for_function("()=>!document.getElementById('result').classList.contains('hidden')&&document.getElementById('resTitle').innerText==='上傳成功'", timeout=30000)
+        body = txt(page, '#resBody')
+        check(f'{s["sid"]}：綠色「上傳成功」視窗顯示正確單號', s['sid'] in body, body)
+        check(f'{s["sid"]}：成功視窗顯示廠商與照片張數', (s['vendor_typed'] or s['vendor']['name']) in body and f'{len(files)} 張' in body, body)
+        if s['idx'] == 0:
+            shot(page, '01-門市上傳-上傳成功視窗')
+        scan(page, '上傳結果視窗（成功）')
+        ck(page, '#resOk', '上傳成功視窗：好，繼續拍下一張')
+        check('按下後視窗關閉', page.evaluate("()=>document.getElementById('result').classList.contains('hidden')"))
     row = S.q('SELECT store_id, brand_id, vendor_id, vendor_name_raw FROM slips WHERE id=?', s['sid'])[0]
     eq(f'{s["sid"]}：貨單屬於上傳的門市', row['store_id'], store['id'])
     eq(f'{s["sid"]}：照片張數', S.q('SELECT COUNT(*) c FROM slip_photos WHERE slip_id=?', s['sid'])[0]['c'], len(files))

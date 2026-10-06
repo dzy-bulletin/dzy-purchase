@@ -41,6 +41,20 @@
   .slip .muted{font-family:var(--mono);font-size:.75rem}
   .bigbtn{width:100%;margin-top:.5rem}
   .step{display:flex;align-items:baseline;gap:.6rem}
+  /* 送出結果視窗：成功綠、還沒送出黃、失敗紅、傳送中品牌色 */
+  .result{position:fixed;inset:0;z-index:60;background:rgba(27,25,23,.6);display:flex;align-items:center;justify-content:center;padding:16px}
+  .result.hidden{display:none}
+  .rcard{background:var(--surface);border-radius:var(--card);border-top:8px solid var(--c);width:100%;max-width:380px;padding:1.6rem 1.2rem 1.2rem;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.25)}
+  .ricon{width:72px;height:72px;border-radius:50%;margin:0 auto .7rem;background:var(--c);color:#fff;display:flex;align-items:center;justify-content:center;font-size:2.4rem;font-weight:900;line-height:1}
+  .rcard h2{font-size:1.5rem;color:var(--ct);margin:0 0 .5rem}
+  .rcard p{margin:.35rem 0;line-height:1.6}
+  .rcard .rinfo{background:var(--faint);border-radius:var(--radius);padding:.6rem .8rem;margin:.7rem 0;text-align:left;font-size:.95rem}
+  .rcard .rinfo b{font-family:var(--mono)}
+  .rbtns{display:flex;gap:.6rem;margin-top:1rem}
+  .rbtns button{flex:1;min-height:52px;font-size:1rem}
+  .r-ok{--c:var(--green);--ct:var(--green-t)} .r-warn{--c:var(--yellow);--ct:var(--yellow-t)} .r-err{--c:var(--red);--ct:var(--red-t)} .r-busy{--c:var(--sidebar);--ct:var(--ink)}
+  .spin{width:34px;height:34px;border:4px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
   .step b{font-family:var(--mono);font-size:.8rem;font-weight:700;color:var(--brand-ink);background:var(--brand);border-radius:var(--radius);width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;flex:none}
 </style>
 </head>
@@ -80,6 +94,10 @@
     <p class="muted" style="text-align:center">v<span id="ver"></span></p>
   </div>
 </section>
+
+<div id="result" class="result hidden" role="alertdialog" aria-modal="true" aria-labelledby="resTitle">
+  <div id="resCard" class="rcard"><div id="resIcon" class="ricon"></div><h2 id="resTitle"></h2><div id="resBody"></div><div id="resBtns" class="rbtns"></div></div>
+</div>
 
 <script>window.PAGE_ROLE = 'store';</script>
 <script src="js/config.js"></script>
@@ -201,9 +219,67 @@ $('sendBtn').onclick = async function () {
     catch (e) { staged = batch; showMsg('手機無法暫存照片，請確認不是無痕模式', 'err'); return; }
     batch.forEach(function (s) { URL.revokeObjectURL(s.url); }); batchCid = null; renderThumbs();
     showMsg('已存在手機，傳送中…', 'info');
-    await updatePending(); await flush();
+    await updatePending();
+    await sendWithResult(cid, { vendor: vendorLabel(v), photos: batch.length });
   } finally { sending = false; renderThumbs(); }
 };
+
+/* ---------- 送出結果視窗 ---------- */
+function vendorLabel(v) {
+  if (v.vendor_name) return v.vendor_name;
+  var o = $('vendorSel').selectedOptions[0]; return o ? o.textContent : '';
+}
+function showResult(kind, title, html, btns) {
+  $('resCard').className = 'rcard r-' + kind;
+  $('resIcon').innerHTML = kind === 'busy' ? '<div class="spin"></div>' : kind === 'ok' ? '✓' : '!';
+  $('resTitle').textContent = title;
+  $('resBody').innerHTML = html;
+  $('resBtns').innerHTML = '';
+  (btns || []).forEach(function (b, i) {
+    var el = document.createElement('button'); el.type = 'button'; el.id = b.id; el.textContent = b.label;
+    if (b.cls) el.className = b.cls;
+    el.onclick = b.fn; $('resBtns').appendChild(el);
+  });
+  $('result').classList.remove('hidden');
+  var first = $('resBtns').querySelector('button'); if (first) first.focus();
+}
+function hideResult() { $('result').classList.add('hidden'); }
+function buzz(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
+// 店員按「送出」或「立即重試」後：顯示傳送中 → 成功／還沒送出／失敗三選一，一定要按鈕關掉
+async function sendWithResult(cid, info) {
+  showResult('busy', '傳送中…', '<p>請不要關閉這個畫面</p>', []);
+  await flush();
+  var ok = sentLog[cid], bad = fatalLog[cid];
+  var extra = Object.keys(sentLog).filter(function (k) { return k !== cid && !notified[k]; });
+  Object.keys(sentLog).forEach(function (k) { notified[k] = true; });
+  var close = { id: 'resOk', label: '好，繼續拍下一張', cls: 'good', fn: hideResult };
+  if (ok) {
+    buzz(120);
+    showResult('ok', '上傳成功', '<div class="rinfo">單號　<b>' + esc(ok.id) + '</b><br>廠商　' + esc(info.vendor || '') + '<br>照片　' + info.photos + ' 張</div>' +
+      '<p>AI 正在辨識，約 1～3 分鐘。進度看下方「我的上傳」。</p>' +
+      (extra.length ? '<p class="muted">另外補傳成功 ' + extra.length + ' 張之前沒送出的貨單。</p>' : ''), [close]);
+  } else if (bad) {
+    buzz([80, 60, 80]);
+    showResult('err', '上傳失敗', '<p><b>這張貨單沒有送出。</b></p><div class="rinfo">原因：' + esc(bad) + '</div>' +
+      '<p>請重新拍照再送一次；一直失敗請找管理者。</p>', [{ id: 'resOk', label: '知道了', fn: hideResult }]);
+  } else {
+    buzz([80, 60, 80]);
+    showResult('warn', '還沒送出', '<p>網路不穩或連不上伺服器。</p><p><b>照片已經存在這支手機</b>，有網路時會自動補傳，不用重拍。</p>',
+      [{ id: 'resRetry', label: '立即重試', cls: 'primary', fn: function () { retryAll().then(function () { sendWithResult(cid, info); }); } },
+       { id: 'resOk', label: '知道了', fn: hideResult }]);
+  }
+}
+// 背景自動補傳成功時也跳一次，讓店員知道之前沒送出的已經送到
+function notifyBackground() {
+  if (!$('result').classList.contains('hidden') || sending) return;
+  var fresh = Object.keys(sentLog).filter(function (k) { return !notified[k]; });
+  fresh.forEach(function (k) { notified[k] = true; });
+  if (!fresh.length) return;
+  buzz(120);
+  showResult('ok', '補傳成功', '<p>之前沒送出的 <b>' + fresh.length + '</b> 張貨單已經送到了。</p><div class="rinfo">' +
+    fresh.map(function (k) { return '單號　<b>' + esc(sentLog[k].id) + '</b>'; }).join('<br>') + '</div>',
+    [{ id: 'resOk', label: '知道了', cls: 'good', fn: hideResult }]);
+}
 
 /* ---------- 補傳 ---------- */
 async function sendOne(rec) {
@@ -214,8 +290,15 @@ async function sendOne(rec) {
   rec.photos.forEach(function (b, i) { fd.append('photos[]', b, 'p' + (i + 1) + '.jpg'); });
   return API.call('/slips', { method: 'POST', body: fd, timeout: 120000 });
 }
-async function flush() {
-  if (flushing || !API.session()) return;
+var sentLog = {}, fatalLog = {}, notified = {};   // client_id → 送出結果（本頁開著期間）
+var flushP = null;
+function flush() {            // 同一時間只跑一輪；正在跑時等它跑完再跑一輪，確保剛存進手機的那張有被送
+  if (!API.session()) return Promise.resolve();
+  if (flushP) return flushP.then(function () { return flush(); });
+  flushP = doFlush().then(function () { flushP = null; }, function () { flushP = null; });
+  return flushP;
+}
+async function doFlush() {
   flushing = true;
   var sent = 0, failed = 0;
   try {
@@ -224,11 +307,11 @@ async function flush() {
     for (var i = 0; i < all.length; i++) {
       var r = all[i];
       if (r.fatal) continue;
-      try { await sendOne(r); await dbDel(r.client_id); sent++; }
+      try { var res = await sendOne(r); await dbDel(r.client_id); sent++; sentLog[r.client_id] = { id: res && res.id || '' }; delete fatalLog[r.client_id]; }
       catch (e) {
-        if (e.code === 'CONFLICT') { await dbDel(r.client_id); sent++; continue; }   // 已收過，重送不變兩筆
+        if (e.code === 'CONFLICT') { await dbDel(r.client_id); sent++; sentLog[r.client_id] = { id: '' }; continue; }   // 已收過，重送不變兩筆
         if (e.code === 'NETWORK' || e.status >= 500 || e.status === 401) { failed++; break; }
-        r.fatal = e.message; await dbPut(r); failed++;   // 4xx：留著並顯示原因，不再自動重試
+        r.fatal = e.message; fatalLog[r.client_id] = e.message; await dbPut(r); failed++;   // 4xx：留著並顯示原因，不再自動重試
       }
     }
   } catch (e) { failed++; }
@@ -244,13 +327,22 @@ async function updatePending() {
   var fatal = all.filter(function (r) { return r.fatal; });
   $('pendingText').textContent = all.length + ' 張待送' + (fatal.length ? '（' + fatal.length + ' 張被伺服器拒絕：' + fatal[0].fatal + '）' : '');
 }
-$('retryNow').onclick = async function () {
+async function retryAll() {
   var all = await dbAll();
-  for (var i = 0; i < all.length; i++) { delete all[i].fatal; await dbPut(all[i]); }
-  flush();
+  for (var i = 0; i < all.length; i++) { delete all[i].fatal; delete fatalLog[all[i].client_id]; await dbPut(all[i]); }
+}
+$('retryNow').onclick = async function () {
+  await retryAll();
+  showResult('busy', '補傳中…', '<p>請不要關閉這個畫面</p>', []);
+  await flush();
+  var left = []; try { left = await dbAll(); } catch (e) {}
+  var fresh = Object.keys(sentLog).filter(function (k) { return !notified[k]; });
+  fresh.forEach(function (k) { notified[k] = true; });
+  if (!left.length) { buzz(120); showResult('ok', '補傳成功', '<p>' + fresh.length + ' 張貨單都送到了。</p>', [{ id: 'resOk', label: '知道了', cls: 'good', fn: hideResult }]); }
+  else { buzz([80, 60, 80]); showResult('warn', '還有 ' + left.length + ' 張沒送出', (fresh.length ? '<p>已送出 ' + fresh.length + ' 張。</p>' : '') + '<p>照片還存在這支手機，有網路時會自動補傳。</p>' + (left.some(function (r) { return r.fatal; }) ? '<div class="rinfo">原因：' + esc(left.filter(function (r) { return r.fatal; })[0].fatal) + '</div>' : ''), [{ id: 'resOk', label: '知道了', fn: hideResult }]); }
 };
-window.addEventListener('online', function () { flush(); });
-setInterval(function () { flush(); }, 30000);
+window.addEventListener('online', function () { flush().then(notifyBackground); });
+setInterval(function () { flush().then(notifyBackground); }, 30000);
 
 /* ---------- 我的上傳 ---------- */
 var showAll = false;   // 預設只列今天與昨天；「看更多」展開最近 30 天（API 本來就回 30 天）
@@ -285,7 +377,7 @@ Common.gate({
   title: '貨單上傳', roles: ['store'], roleError: '這是門市專用頁面，請用門市代號登入（會計與管理者請到核對頁）', upper: true,
   pwHint: '第一次使用的預設密碼是 000000，登入後系統會請你設定自己的新密碼。忘記密碼請找管理者重設。',
   loginHint: '請用門市代號登入（例如 MDGF）', accLabel: '門市代號',
-  onReady: function (s) { $('who').textContent = s.name || s.store_id || ''; $('ver').textContent = CFG.VERSION; loadVendors(); loadMine(); updatePending(); flush(); }
+  onReady: function (s) { $('who').textContent = s.name || s.store_id || ''; $('ver').textContent = CFG.VERSION; loadVendors(); loadMine(); updatePending(); flush().then(notifyBackground); }
 });
 </script>
 </body>
