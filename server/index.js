@@ -469,8 +469,9 @@ function makeApp(cfg, opts) {
         if (r.roles) {
           const sp = cfg.STORE_SVC_KEY || req.headers['x-store-key'] !== undefined ? A.authenticateServiceKey(db, req, cfg.STORE_SVC_KEY) : null;
           if (sp) {                                                  // 服務金鑰通道：只放行上傳與查自己
-            const ok = (req.method === 'POST' && sub === '/slips') || (req.method === 'GET' && sub === '/slips' && url.searchParams.get('mine') === '1');
-            if (!ok) throw new ApiError('FORBIDDEN', '服務金鑰只能用於上傳貨單與查詢自己門市的貨單');
+            const ok = (req.method === 'POST' && sub === '/slips') || (req.method === 'GET' && sub === '/slips' && url.searchParams.get('mine') === '1')
+              || (req.method === 'GET' && sub === '/vendors' && !url.searchParams.has('all')) || (req.method === 'GET' && /^\/photos\/[^/]+\/\d+$/.test(sub));
+            if (!ok) throw new ApiError('FORBIDDEN', '服務金鑰只能用於上傳貨單、查詢廠商與查詢自己門市的貨單和照片');
             p = sp; A.requireRole(p, ...r.roles);
           } else {
             p = A.authenticate(db, req, now(), { storeLoginOff: cfg.STORE_LOGIN_OFF }); A.requireRole(p, ...r.roles);

@@ -64,7 +64,7 @@ test('正確金鑰：上傳成功、store_id 正確；查 mine=1 只看到自己
 test('正確金鑰打其他路由一律 403（含會計路由、門市原本能用的路由、登出）', async () => {
   const t = await startApp({ cfg: { STORE_SVC_KEY: KEY } });
   try {
-    for (const [m, p] of [['GET', '/review'], ['GET', '/vendors'], ['GET', '/slips/abc'], ['PUT', '/slips/abc'], ['POST', '/slips/abc/confirm'], ['POST', '/password'], ['POST', '/logout'], ['GET', '/photos/abc/1']]) {
+    for (const [m, p] of [['GET', '/review'], ['GET', '/vendors?all=1'], ['GET', '/slips/abc'], ['PUT', '/slips/abc'], ['POST', '/slips/abc/confirm'], ['POST', '/password'], ['POST', '/logout']]) {
       const r = await t.call(m, p, { headers: sk('C01'), body: m === 'GET' ? undefined : {} });
       assert.strictEqual(r.status, 403, `${m} ${p} → ${r.status}`);
       assert.strictEqual(r.error, 'FORBIDDEN');
@@ -123,4 +123,25 @@ test('config：STORE_LOGIN_OFF 只有 "1" 才開；STORE_SVC_KEY 讀環境變數
   assert.strictEqual(loadConfig({ STORE_LOGIN_OFF: '1' }).STORE_LOGIN_OFF, true);
   assert.strictEqual(loadConfig({}).STORE_SVC_KEY, '');
   assert.strictEqual(loadConfig({ STORE_SVC_KEY: 'k' }).STORE_SVC_KEY, 'k');
+});
+
+test('金鑰通道放行 GET /vendors（與門市登入同結果）與 GET /photos（只限自己門市）', async () => {
+  const t = await startApp({ cfg: { STORE_SVC_KEY: KEY } });
+  try {
+    const tok = await t.login('C01', PASS.SEED_PASS_C01);
+    const viaLogin = await t.call('GET', '/vendors', { token: tok });
+    const viaKey = await t.call('GET', '/vendors', { headers: sk('C01') });
+    assert.strictEqual(viaKey.status, 200);
+    assert.deepStrictEqual(viaKey.data, viaLogin.data);
+    assert.strictEqual((await t.call('GET', '/vendors', { headers: sk('C01', 'bad') })).status, 401);
+    // C01 上傳一張；C01 用金鑰取得照片、M01 用金鑰取不到
+    const up = await svcUpload(t, 'C01');
+    assert.strictEqual(up.status, 200, JSON.stringify(up));
+    const id = up.data.id;
+    const mine = await t.call('GET', `/photos/${id}/1`, { headers: sk('C01') });
+    assert.strictEqual(mine.status, 200);
+    const other = await t.call('GET', `/photos/${id}/1`, { headers: sk('M01') });
+    assert.ok(other.status === 403 || other.status === 404, `別店應被擋，實際 ${other.status}`);
+    assert.strictEqual((await t.call('GET', `/photos/${id}/1`, { headers: sk('C01', 'bad') })).status, 401);
+  } finally { await t.close(); }
 });
