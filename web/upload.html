@@ -36,6 +36,21 @@
   .pending{display:flex;align-items:center;gap:.5rem;justify-content:space-between}
   .slip{border-top:1px solid var(--faint);padding:.7rem 0}
   .slip:first-child{border-top:0}
+  /* 我的上傳：每筆左邊一張縮圖，點開看全部照片 */
+  .slip .srow{display:flex;gap:.7rem;align-items:flex-start}
+  .slip .sinfo{flex:1;min-width:0}
+  .sthumb{flex:none;position:relative;width:64px;height:64px;min-height:64px;padding:0;border:1px solid var(--line);border-radius:var(--radius);background:var(--faint);overflow:hidden;cursor:zoom-in}
+  .sthumb img{width:100%;height:100%;object-fit:cover;display:block}
+  .sthumb .pc{position:absolute;right:2px;bottom:2px;background:rgba(0,0,0,.7);color:#fff;font-size:.7rem;line-height:1;padding:3px 5px;border-radius:6px}
+  .viewer{position:fixed;inset:0;z-index:70;background:#111;display:flex;flex-direction:column}
+  .viewer.hidden{display:none}
+  .viewer .vbar{display:flex;align-items:center;gap:.5rem;padding:.6rem .8rem;color:#fff}
+  .viewer .vbar .grow{font-size:.95rem}
+  .viewer .vbar button{min-height:48px;min-width:48px;background:#2a2623;color:#fff;border:1px solid #444}
+  .viewer .vimg{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;touch-action:pinch-zoom pan-x pan-y}
+  .viewer .vimg img{max-width:100%;max-height:100%;object-fit:contain}
+  .viewer .vnav{display:flex;gap:.6rem;padding:.6rem .8rem 1rem}
+  .viewer .vnav button{flex:1;min-height:52px;background:#2a2623;color:#fff;border:1px solid #444}
   .slip.ret{background:var(--red-bg);border:1px solid var(--red);border-radius:var(--radius);padding:.7rem;margin:.5rem 0}
   .slip .t{word-break:break-all}
   .slip .muted{font-family:var(--mono);font-size:.75rem}
@@ -95,6 +110,12 @@
     <p class="muted" style="text-align:center">v<span id="ver"></span></p>
   </div>
 </section>
+
+<div id="viewer" class="viewer hidden" role="dialog" aria-modal="true" aria-labelledby="vTitle">
+  <div class="vbar"><span id="vTitle" class="grow"></span><button id="vClose" type="button" aria-label="關閉">✕</button></div>
+  <div class="vimg"><img id="vImg" alt="貨單照片"></div>
+  <div id="vNav" class="vnav"><button id="vPrev" type="button">‹ 上一張</button><button id="vNext" type="button">下一張 ›</button></div>
+</div>
 
 <div id="result" class="result hidden" role="alertdialog" aria-modal="true" aria-labelledby="resTitle">
   <div id="resCard" class="rcard"><div id="resIcon" class="ricon"></div><h2 id="resTitle"></h2><div id="resBody"></div><div id="resBtns" class="rbtns"></div></div>
@@ -361,12 +382,49 @@ function dayTW(iso) {
   return m ? m[1] + '-' + m[2] + '-' + m[3] : '';
 }
 function slipHTML(s) {
-  var ret = s.status === 'returned';
-  return '<div class="slip' + (ret ? ' ret' : '') + '"><div class="row"><span class="t grow">' + esc(s.vendor_name || '（未指定廠商）') +
+  var ret = s.status === 'returned', n = s.photo_count || 0;
+  var th = n ? '<button type="button" class="sthumb" data-sid="' + esc(s.id) + '" data-n="' + n + '" aria-label="看 ' + esc(s.id) + ' 的照片"><img alt="">' + (n > 1 ? '<span class="pc">' + n + ' 張</span>' : '') + '</button>' : '';
+  return '<div class="slip' + (ret ? ' ret' : '') + '"><div class="srow">' + th + '<div class="sinfo"><div class="row"><span class="t grow">' + esc(s.vendor_name || '（未指定廠商）') +
     '</span><span class="badge b-' + esc(s.status) + '">' + esc(STATUS_TEXT[s.status] || s.status) + '</span></div>' +
     '<div class="muted">' + esc(s.id) + '　' + esc(twTime(s.uploaded_at)) + '</div>' +
-    (ret ? '<div style="color:var(--red-t);font-weight:600">請重新拍照上傳這張貨單' + (s.return_reason ? '：' + esc(s.return_reason) : '') + '</div>' : '') + '</div>';
+    (ret ? '<div style="color:var(--red-t);font-weight:600">請重新拍照上傳這張貨單' + (s.return_reason ? '：' + esc(s.return_reason) : '') + '</div>' : '') + '</div></div></div>';
 }
+
+/* ---------- 照片預覽：縮圖捲到畫面上才下載；點開看全部照片 ---------- */
+var photoCache = {};   // 'S…:1' → objectURL（本頁開著期間重用，不重複下載）
+function photoUrl(sid, i) {
+  var k = sid + ':' + i;
+  if (!photoCache[k]) photoCache[k] = API.call('/photos/' + encodeURIComponent(sid) + '/' + i, { raw: true }).then(function (b) { return URL.createObjectURL(b); }, function (e) { delete photoCache[k]; throw e; });
+  return photoCache[k];
+}
+var thumbObs = 'IntersectionObserver' in window ? new IntersectionObserver(function (ents) {
+  ents.forEach(function (en) { if (en.isIntersecting) { thumbObs.unobserve(en.target); loadThumb(en.target); } });
+}, { rootMargin: '200px' }) : null;
+function loadThumb(btn) {
+  photoUrl(btn.dataset.sid, 1).then(function (u) { btn.querySelector('img').src = u; }, function () { btn.querySelector('img').alt = '讀不到'; });
+}
+function bindThumbs(box) {
+  Array.prototype.forEach.call(box.querySelectorAll('.sthumb'), function (b) {
+    if (thumbObs) thumbObs.observe(b); else loadThumb(b);
+    b.onclick = function () { openViewer(b.dataset.sid, +b.dataset.n, 1); };
+  });
+}
+var vState = null;
+async function openViewer(sid, n, i) {
+  vState = { sid: sid, n: n, i: i };
+  $('vTitle').textContent = sid + '　第 ' + i + ' / ' + n + ' 張';
+  $('vNav').classList.toggle('hidden', n < 2);
+  $('vPrev').disabled = i <= 1; $('vNext').disabled = i >= n;
+  $('vImg').removeAttribute('src'); $('vImg').alt = '讀取中…';
+  $('viewer').classList.remove('hidden');
+  try { var u = await photoUrl(sid, i); if (vState && vState.sid === sid && vState.i === i) { $('vImg').src = u; $('vImg').alt = sid + ' 第 ' + i + ' 張'; } }
+  catch (e) { $('vImg').alt = '讀不到照片：' + e.message; }
+}
+function closeViewer() { vState = null; $('viewer').classList.add('hidden'); }
+$('vClose').onclick = closeViewer;
+$('vPrev').onclick = function () { if (vState && vState.i > 1) openViewer(vState.sid, vState.n, vState.i - 1); };
+$('vNext').onclick = function () { if (vState && vState.i < vState.n) openViewer(vState.sid, vState.n, vState.i + 1); };
+document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && vState) closeViewer(); });
 async function loadMine() {
   var box = $('mine'), more = $('moreBtn');
   try {
@@ -376,6 +434,7 @@ async function loadMine() {
     var recent = list.filter(function (s) { var d = dayTW(s.uploaded_at); return d === t || d === y; });
     var shown = showAll ? list : recent, rest = list.length - recent.length;
     box.innerHTML = shown.length ? shown.map(slipHTML).join('') : '今天與昨天沒有上傳';
+    bindThumbs(box);
     more.classList.toggle('hidden', showAll || rest <= 0);
     more.textContent = '看更多（最近 30 天，另有 ' + rest + ' 張）';
   } catch (e) { box.textContent = '讀不到上傳紀錄：' + e.message; more.classList.add('hidden'); }

@@ -449,6 +449,7 @@ def ui_upload(page, S, D, s, how='normal'):
         scan(page, '上傳結果視窗（成功）')
         ck(page, '#resOk', '上傳成功視窗：好，繼續拍下一張')
         check('按下後視窗關閉', page.evaluate("()=>document.getElementById('result').classList.contains('hidden')"))
+        preview_check(page, s, len(files))
     row = S.q('SELECT store_id, brand_id, vendor_id, vendor_name_raw FROM slips WHERE id=?', s['sid'])[0]
     eq(f'{s["sid"]}：貨單屬於上傳的門市', row['store_id'], store['id'])
     eq(f'{s["sid"]}：照片張數', S.q('SELECT COUNT(*) c FROM slip_photos WHERE slip_id=?', s['sid'])[0]['c'], len(files))
@@ -457,6 +458,37 @@ def ui_upload(page, S, D, s, how='normal'):
     else:
         eq(f'{s["sid"]}：選的廠商存為 vendor_id', row['vendor_id'], s['vendor']['id'])
     return s['sid']
+
+
+def preview_check(page, s, n):
+    """「我的上傳」每筆有縮圖＝剛上傳的那張照片；點開可看全部照片（2026-10-07）。"""
+    sid = s['sid']
+    sel = f'#mine .sthumb[data-sid="{sid}"]'
+    page.wait_for_selector(sel, timeout=15000)
+    page.wait_for_function(f"""()=>{{const i=document.querySelector('{sel} img');return i&&i.complete&&i.naturalWidth>0}}""", timeout=15000)
+    dims = page.evaluate(f"""()=>{{const i=document.querySelector('{sel} img');return [i.naturalWidth,i.naturalHeight]}}""")
+    eq(f'{sid}：「我的上傳」縮圖就是剛上傳的第 1 張照片（尺寸）', tuple(dims), tuple(s['dims']))
+    eq(f'{sid}：縮圖標的張數', page.evaluate(f"""()=>+document.querySelector('{sel}').dataset.n"""), n)
+    if s.get('idx', 0) != 0 and (n < 2 or s.get('viewer_done')):
+        return
+    ck(page, sel, '我的上傳：點縮圖看照片')
+    page.wait_for_function("()=>{const i=document.getElementById('vImg');return !document.getElementById('viewer').classList.contains('hidden')&&i.complete&&i.naturalWidth>0}", timeout=15000)
+    eq(f'{sid}：預覽視窗標題', txt(page, '#vTitle').strip(), f'{sid}\u3000第 1 / {n} 張')
+    dims = page.evaluate("()=>[document.getElementById('vImg').naturalWidth,document.getElementById('vImg').naturalHeight]")
+    eq(f'{sid}：預覽視窗第 1 張照片（尺寸）', tuple(dims), tuple(s['dims']))
+    scan(page, '照片預覽視窗')
+    if n >= 2:
+        s['viewer_done'] = True
+        ck(page, '#vNext', '預覽：下一張')
+        page.wait_for_function("()=>/第 2 張/.test(document.getElementById('vImg').alt)", timeout=15000)
+        check(f'{sid}：按「下一張」換到第 2 張', txt(page, '#vTitle').strip() == f'{sid}\u3000第 2 / {n} 張', txt(page, '#vTitle'))
+        ck(page, '#vPrev', '預覽：上一張')
+        page.wait_for_function("()=>/第 1 張/.test(document.getElementById('vImg').alt)", timeout=15000)
+        check(f'{sid}：按「上一張」回到第 1 張', True)
+    else:
+        check(f'{sid}：只有 1 張時不顯示上一張／下一張', page.evaluate("()=>document.getElementById('vNav').classList.contains('hidden')"))
+    ck(page, '#vClose', '預覽：關閉')
+    check(f'{sid}：關閉預覽視窗', page.evaluate("()=>document.getElementById('viewer').classList.contains('hidden')"))
 
 
 def store_ui_prelude(page, D, S):
@@ -1062,10 +1094,24 @@ def do_return_flow(P, S, D, M, s, by_sid):
     page = P['acc']
     reason = s['inj']['return']
     open_slip(page, s['sid'])
-    DLG['prompt'] = reason
-    ck(page, '#returnBtn', '退回重拍')
-    page.wait_for_function("()=>document.querySelector('#work .msg.ok')&&document.querySelector('#work .msg.ok').innerText.indexOf('已退回')>=0", timeout=15000)
-    DLG['prompt'] = None
+    if not D.get('stale_return_done'):
+        # 2026-10-07 實際發生：畫面開著這張單時被別人先處理掉，再按「退回」被擋只出現小字 → 現在要跳窗並把畫面換成最新狀態
+        D['stale_return_done'] = True
+        tok = page.evaluate("()=>API.session().token")
+        c, j = api('POST', f'/slips/{s["sid"]}/return', token=tok, body={'reason': reason})
+        check(f'{s["sid"]}：（模擬另一人）先用 API 退回成功', c == 200, (c, j))
+        DLG['log'].clear(); DLG['prompt'] = 'x'
+        ck(page, '#returnBtn', '退回重拍（已被別人退回）')
+        page.wait_for_function("()=>document.querySelector('#work .badge')&&document.querySelector('#work .badge').innerText==='退回重拍'", timeout=15000)
+        DLG['prompt'] = None
+        msgs = [m for _, m in DLG['log']]
+        check(f'{s["sid"]}：狀態已被改掉時跳窗說明並更新畫面', any('這個動作沒有成功' in m and '退回重拍' in m for m in msgs), msgs)
+        check(f'{s["sid"]}：更新後顯示「重新開放」鈕', page.evaluate("()=>!!document.getElementById('reopenBtn')"))
+    else:
+        DLG['prompt'] = reason
+        ck(page, '#returnBtn', '退回重拍')
+        page.wait_for_function("()=>document.querySelector('#work .msg.ok')&&document.querySelector('#work .msg.ok').innerText.indexOf('已退回')>=0", timeout=15000)
+        DLG['prompt'] = None
     eq(f'{s["sid"]}：退回後狀態', S.q('SELECT status, return_reason FROM slips WHERE id=?', s['sid'])[0], {'status': 'returned', 'return_reason': reason})
     store_returned_check(P, s, reason)
     nav(page, 'review.html', 'returned')

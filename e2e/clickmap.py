@@ -20,6 +20,7 @@ _KEY_LOGIC = """
   // 同 class 的輸入用 data-k／data-bk／data-p 區分，避免所有勾選框共用一個 key
   if (e.dataset && e.dataset.page) return 'nav[' + e.dataset.page + '#' + e.dataset.key + ']';
   if (e.closest && e.closest('.sug')) return 'button.sug';
+  if (e.classList && e.classList.contains('sthumb')) return 'button.sthumb';   // 我的上傳縮圖：張數文字會變
   if (e.dataset && e.dataset.p !== undefined && e.tagName === 'BUTTON') return 'button.photo';
   const cls = (typeof e.className === 'string' && e.className.trim())
     ? '.' + e.className.trim().split(/\\s+/)[0] : '';

@@ -417,8 +417,21 @@ function update() {
 }
 
 /* ---------- 動作 ---------- */
+var STATUS_NAME = { uploaded: '已送出', queued: '排隊辨識中', recognizing: 'AI 辨識中', review: '待核對', confirmed: '已入帳', failed: '辨識失敗', returned: '退回重拍' };
+/* 動作被後端擋下時：先查這張單現在的狀態。狀態已經被別人（或另一個分頁）改掉 → 跳窗說清楚並把畫面換成最新狀態；
+   狀態沒變 → 照舊在按鈕旁顯示原因。（2026-10-07：會計按「退回」被擋只出現小字，誤以為已退回） */
+async function actFail(e) {
+  var id = cur && cur.id, was = cur && cur.status, d = null;
+  if (id) { try { d = await API.call('/slips/' + encodeURIComponent(id)); } catch (x) {} }
+  if (d && d.status !== was) {
+    alert('這個動作沒有成功：' + e.message + '\n\n這張貨單剛剛已經變成「' + (STATUS_NAME[d.status] || d.status) + '」（可能有其他人或另一個分頁處理過），畫面會更新成最新狀態。');
+    dirty = false; await openSlip(id); return;
+  }
+  say(e.message, 'err');
+}
 function buildActions() {
   var a = $('actions'), st = cur.status;
+  if (st === 'uploaded' || st === 'queued' || st === 'recognizing') { a.innerHTML = '<span id="actMsg" class="grow"><div class="msg info">這張貨單' + esc(STATUS_NAME[st]) + '，辨識完成後會出現在「待核對」，現在不能修改、入帳或退回。</div></span>'; return; }
   if (st === 'confirmed') { a.innerHTML = '<button id="unconfirmBtn" class="warn">取消入帳</button><span id="actMsg" class="grow"></span>'; $('unconfirmBtn').onclick = doUnconfirm; return; }
   if (st === 'returned') { a.innerHTML = '<button id="reopenBtn" class="warn">重新開放（回到待核對）</button><span id="actMsg" class="grow"></span>'; $('reopenBtn').onclick = doReopen; return; }
   a.innerHTML = '<button id="saveBtn">儲存</button><button id="confirmBtn" class="good" disabled>入帳</button><button id="returnBtn" class="warn">退回重拍</button><span id="actMsg" class="grow"></span>';
@@ -441,7 +454,7 @@ async function save() {
     /* issue #23：儲存成功後重畫明細列與旗標區（後端可能已清 DATE_FIXED、重算旗標） */
     buildRows(); update();
     return true; }
-  catch (e) { say(e.message, 'err'); return false; }
+  catch (e) { await actFail(e); return false; }
 }
 /* 入帳前預告：本張會自動建立的廠商／品項（規則與後端共用 Rules.nameKey／okAuto*；廠商別名無法由前端得知，極少數情況會多報） */
 async function autoCreatePreview() {
@@ -472,14 +485,14 @@ async function doConfirm() {
   }
   try { await API.call('/slips/' + encodeURIComponent(cur.id) + '/confirm', { method: 'POST', body: {} });
     dirty = false; var id = cur.id; cur = null; $('work').innerHTML = '<div class="detail"><div class="msg ok">' + esc(id) + ' 已入帳</div></div>'; loadList(); }
-  catch (e) { say(e.message, 'err'); }
+  catch (e) { await actFail(e); }
 }
 async function doReturn() {
   var reason = prompt('退回原因（會顯示給門市，例如：照片太糊）', '照片不清楚，請重拍');
   if (reason == null) return;
   try { await API.call('/slips/' + encodeURIComponent(cur.id) + '/return', { method: 'POST', body: { reason: reason } });
     dirty = false; cur = null; $('work').innerHTML = '<div class="detail"><div class="msg ok">已退回門市重拍</div></div>'; loadList(); }
-  catch (e) { say(e.message, 'err'); }
+  catch (e) { await actFail(e); }
 }
 async function doRetry(id, fromList) {
   if (!confirm('重新辨識這張貨單？（會回到排隊，手動輸入的內容之後會被辨識結果覆蓋）')) return;
@@ -492,7 +505,7 @@ async function doReopen() {
   if (!confirm('重新開放後這張會回到待核對，退回原因會保留在紀錄裡。確定？')) return;
   try { var d = await API.call('/slips/' + encodeURIComponent(cur.id) + '/reopen', { method: 'POST', body: {} });
     d.lines = (d.lines || []).map(function (l) { return Object.assign({ checked: 0, flags: [], item_id: null }, l); }); cur = d; dirty = false; render(); loadList(); }
-  catch (e) { say(e.message, 'err'); }
+  catch (e) { await actFail(e); }
 }
 async function doUnconfirm() {
   var reason = prompt('取消入帳原因（必填）');
@@ -500,7 +513,7 @@ async function doUnconfirm() {
   if (!reason.trim()) { say('必須填寫原因', 'err'); return; }
   try { await API.call('/slips/' + encodeURIComponent(cur.id) + '/unconfirm', { method: 'POST', body: { reason: reason.trim() } });
     var id = cur.id; cur = null; $('work').innerHTML = '<div class="detail"><div class="msg ok">' + esc(id) + ' 已取消入帳，回到待核對</div></div>'; loadList(); }
-  catch (e) { say(e.message, 'err'); }
+  catch (e) { await actFail(e); }
 }
 
 /* ---------- 照片檢視：滾輪縮放、拖曳、多張切換 ---------- */
