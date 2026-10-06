@@ -48,12 +48,15 @@ function principalOf(kind, row, db, sessionBrand) {
 }
 const whoOf = (p) => `${p.kind}:${p.id}`;
 
-function login(db, account, password, now) {
+const STORE_LOGIN_OFF_MSG = '門市請改用門市營運系統登入';
+
+function login(db, account, password, now, opts) {
   now = now || new Date();
   if (typeof account !== 'string' || typeof password !== 'string' || !account || !password) throw new ApiError('BAD_INPUT', '請輸入帳號與密碼');
   const found = findAccount(db, account);
   if (!found) { verifyPassword(password, DUMMY); throw new ApiError('AUTH', '帳號或密碼錯誤'); }
   const { kind, row } = found;
+  if (kind === 'store' && opts && opts.storeLoginOff) throw new ApiError('FORBIDDEN', STORE_LOGIN_OFF_MSG);
   const table = kind === 'store' ? 'stores' : 'users';
   if (row.locked_until && new Date(row.locked_until) > now) throw new ApiError('LOCKED', '密碼錯誤次數過多，已鎖定 15 分鐘，請稍後再試');
   if (!row.active || !verifyPassword(password, row.pass_hash)) {
@@ -73,15 +76,33 @@ function login(db, account, password, now) {
 }
 
 // 從 Authorization: Bearer 取出登入者；沒帶、過期、帳號停用都回 AUTH
-function authenticate(db, req, now) {
+function authenticate(db, req, now, opts) {
   const m = /^Bearer\s+([0-9a-f]{64})$/i.exec(req.headers.authorization || '');
   if (!m) throw new ApiError('AUTH', '請先登入');
   const s = db.prepare('SELECT * FROM sessions WHERE token_hash = ?').get(sha256(m[1].toLowerCase()));
   if (!s || new Date(s.expires_at) < (now || new Date())) throw new ApiError('AUTH', '登入已過期，請重新登入');
   const [kind, id] = s.who.split(':');
+  if (kind === 'store' && opts && opts.storeLoginOff) throw new ApiError('AUTH', STORE_LOGIN_OFF_MSG);   // 舊門市 session 一併失效
   const row = db.prepare(`SELECT * FROM ${kind === 'store' ? 'stores' : 'users'} WHERE id = ?`).get(Number(id));
   if (!row || !row.active) throw new ApiError('AUTH', '帳號已停用');
   const p = principalOf(kind, row, db, s.brand_id); p.token_hash = s.token_hash;
+  return p;
+}
+
+// 服務金鑰通道：X-Store-Key（等長常數時間比對）＋X-Store-Code → 該門市的 principal（形狀同門市登入）
+// 回 null＝沒帶金鑰標頭（走一般登入）；通道關閉或金鑰錯、門市不存在／停用一律 AUTH
+function authenticateServiceKey(db, req, svcKey) {
+  const k = req.headers['x-store-key'];
+  if (k === undefined) return null;
+  const want = crypto.createHash('sha256').update(String(svcKey || '')).digest();
+  const got = crypto.createHash('sha256').update(String(k)).digest();
+  const ok = crypto.timingSafeEqual(want, got) && !!svcKey;      // 先雜湊成等長再比，不洩漏長度
+  if (!ok) throw new ApiError('AUTH', '服務金鑰錯誤');
+  const code = String(req.headers['x-store-code'] || '').trim().toUpperCase();
+  const row = /^[A-Z0-9]{2,10}$/.test(code) ? db.prepare('SELECT * FROM stores WHERE code = ?').get(code) : null;
+  if (!row || !row.active) throw new ApiError('AUTH', '門市代號不存在或已停用');
+  const p = principalOf('store', row, db, null);
+  p.must_change_password = false; p.via_service_key = true;
   return p;
 }
 
@@ -128,4 +149,4 @@ function canSeeSlip(p, slip, { storeOwn = true } = {}) {
   return false;
 }
 
-module.exports = { changePassword, hashPassword, verifyPassword, login, authenticate, logout, switchBrand, requireRole, canSeeSlip, whoOf, sha256 };
+module.exports = { authenticateServiceKey, changePassword, hashPassword, verifyPassword, login, authenticate, logout, switchBrand, requireRole, canSeeSlip, whoOf, sha256 };
