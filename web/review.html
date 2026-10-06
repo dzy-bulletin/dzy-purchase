@@ -351,7 +351,7 @@ function lineFlags(l) {
   var f = (l.flags || []).filter(function (c) { return !RED[c] && c !== 'ITEM_UNMAPPED'; });
   if (!l.item_id && (l.raw_name || '').trim()) f.push('ITEM_UNMAPPED');   // 選定統一品名後黃旗消失
   if (l.unit_price == null) f.push('PRICE_MISSING');
-  else if (l.qty != null && l.amount != null && Math.abs(r2(l.qty * l.unit_price) - l.amount) >= 0.01) f.push('AMOUNT_MISMATCH');
+  else if (l.qty != null && l.amount != null && !Rules.moneyEq(l.qty * l.unit_price, l.amount)) f.push('AMOUNT_MISMATCH');   // 四捨五入後相符就不算錯
   return f;
 }
 /* 數量、單價、金額都要填且 > 0（後端同規則；缺值本身就是紅） */
@@ -365,23 +365,34 @@ function calc() {
 function sumWhy(c) {
   if (c.missing) return '總額或某一列金額沒有填，請對照照片補上。';
   if (cur.tax_included) {
-    if (Math.abs(c.sum - cur.total) >= 0.01) return '品項加總 ' + fmt(c.sum) + '，但單上總額是 ' + fmt(cur.total) + '，差 ' + fmt(r2(Math.abs(c.sum - cur.total))) + '。這張單已勾選「品項金額已含稅」，品項加總應該直接等於總額；請檢查是不是多算或少算了一列，或某一列金額讀錯。如果單上品項金額其實是未稅，請取消勾選。';
+    if (cur.tax != null && cur.tax >= cur.total) return '稅額 ' + fmt(cur.tax) + ' 不應大於或等於總額 ' + fmt(cur.total) + '，請檢查稅額是不是讀成了總計。';
+    if (!Rules.moneyEq(c.sum, cur.total)) return '品項加總 ' + fmt(c.sum) + '，但單上總額是 ' + fmt(cur.total) + '，差 ' + fmt(r2(Math.abs(c.sum - cur.total))) + '。這張單已勾選「品項金額已含稅」，品項加總應該直接等於總額；請檢查是不是多算或少算了一列，或某一列金額讀錯。如果單上品項金額其實是未稅，請取消勾選。';
     var us = r2(cur.subtotal + cur.tax);
     return '未稅合計 ' + fmt(cur.subtotal) + ' ＋ 稅額 ' + fmt(cur.tax) + ' ＝ ' + fmt(us) + '，但總額是 ' + fmt(cur.total) + '，差 ' + fmt(r2(Math.abs(us - cur.total))) + '。請檢查未稅合計、稅額、總額有沒有填錯。';
   }
   var tax = cur.tax || 0, should = r2(c.sum + tax);
-  if (Math.abs(should - cur.total) >= 0.01) {
+  if (!Rules.moneyEq(should, cur.total)) {
     var diff = fmt(r2(Math.abs(should - cur.total)));
     if (cur.tax != null) return '品項加總 ' + fmt(c.sum) + ' ＋ 稅額 ' + fmt(tax) + ' ＝ ' + fmt(should) + '，但單上總額是 ' + fmt(cur.total) + '，差 ' + diff + '。請檢查是不是多算了一列（例如把稅額或合計當成品項），或某一列金額讀錯。';
     return '品項加總 ' + fmt(c.sum) + '，但單上總額是 ' + fmt(cur.total) + '，差 ' + diff + '。請檢查是不是多算或少算了一列，或某一列金額讀錯；如果單上另外列了稅額，請填在「稅額」欄。';
   }
   return '品項加總 ' + fmt(c.sum) + '，但單上的未稅合計是 ' + fmt(cur.subtotal) + '，差 ' + fmt(r2(Math.abs(c.sum - cur.subtotal))) + '。請檢查品項金額，或未稅合計是不是填錯。';
 }
+/* 四捨五入後相符時，畫面註明差了多少（不算錯） */
+function roundNote(c) {
+  if (cur.total == null) return '';
+  var calcd = cur.tax_included ? c.sum : r2(c.sum + (cur.tax || 0)), d = r2(Math.abs(calcd - cur.total));
+  return d >= 0.01 ? '（四捨五入，差 ' + fmt(d) + '）' : '';
+}
+/* 紅色分兩種（Eason 2026-10-07）：
+   缺數字（數量／單價／金額沒填或 ≤ 0、沒填總額）＝資料不完整，不能入帳；
+   對不起來（數量×單價≠金額、加總≠總額）＝提醒，會計確認後仍可入帳，按入帳時再問一次。 */
 function update() {
-  var c = calc(), reds = 0, unchecked = 0;
+  var c = calc(), reds = 0, missing = 0, unchecked = 0, warn = [];
   cur.lines.forEach(function (l, i) {
     var f = lineFlags(l), bad = lineBad(l), hasR = bad || f.some(function (x) { return RED[x]; }), hasY = f.length && !hasR;
-    if (hasR) reds++; if (!l.checked) unchecked++;
+    if (hasR) reds++; if (bad) missing++; if (!l.checked) unchecked++;
+    if (!bad && f.indexOf('AMOUNT_MISMATCH') >= 0) warn.push('第 ' + (i + 1) + ' 列 ' + (l.raw_name || '') + '：數量×單價 ' + fmt(r2(l.qty * l.unit_price)) + '，金額 ' + fmt(l.amount));
     var tr = $('r' + i); if (!tr) return;
     tr.className = 'lcard ' + (hasR ? 'red' : (hasY ? 'yellow' : ''));
     var ex = '';
@@ -393,13 +404,16 @@ function update() {
   $('slipWhy').innerHTML = sf.map(function (x) { var m = FLAG[x] || ['y', x]; var t = (x === 'DATE_FIXED' && cur.date_note) ? cur.date_note + '，請對照照片確認' : m[1]; return '<span class="y">黃：' + esc(t) + '</span>'; }).join('　');
   $('sum').className = 'sum ' + (c.sumOk ? 'good' : 'bad');
   $('sum').innerHTML = '各列加總 <b>' + fmt(c.sum) + '</b>' + (cur.tax != null ? '　稅額 <b>' + fmt(cur.tax) + '</b>' : '') + '　總額 <b>' + (cur.total == null ? '（未填）' : fmt(cur.total)) + '</b>　' +
-    (c.sumOk ? '<b>相符</b>' : '<div class="r" style="margin-top:.4rem;line-height:1.6">紅：' + esc(sumWhy(c)) + '</div>');
-  cur._reds = reds + (slipRed ? 1 : 0); cur._unchecked = unchecked;
-  var blocked = cur._reds > 0 || unchecked > 0 || !cur.lines.length;
+    (c.sumOk ? '<b>相符</b>' + esc(roundNote(c)) : '<div class="r" style="margin-top:.4rem;line-height:1.6">紅：' + esc(sumWhy(c)) + '</div>');
+  if (slipRed && !c.missing) warn.push('總額：' + sumWhy(c));
+  var noTotal = cur.total == null;
+  cur._reds = reds + (slipRed ? 1 : 0); cur._unchecked = unchecked; cur._warn = warn;
+  var blocked = missing > 0 || noTotal || unchecked > 0 || !cur.lines.length;
   var b = $('confirmBtn');
-  if (b) { b.disabled = blocked; b.title = blocked ? ('還有 ' + cur._reds + ' 項紅色、' + unchecked + ' 列沒打勾') : ''; }
+  if (b) { b.disabled = blocked; b.title = blocked ? '資料還沒填完整或還有列沒打勾' : (warn.length ? '還有 ' + warn.length + ' 項紅色提醒，按入帳時會再確認一次' : ''); }
   var n = $('note');
-  if (n && b) n.innerHTML = blocked ? '<div class="muted">不能入帳：' + (cur._reds ? cur._reds + ' 項紅色未處理　' : '') + (unchecked ? unchecked + ' 列沒打勾' : '') + (!cur.lines.length ? '沒有明細' : '') + '</div>' : '';
+  if (n && b) n.innerHTML = blocked ? '<div class="muted">不能入帳：' + (missing ? missing + ' 列數量／單價／金額沒填　' : '') + (noTotal ? '沒填總額　' : '') + (unchecked ? unchecked + ' 列沒打勾' : '') + (!cur.lines.length ? '沒有明細' : '') + '</div>'
+    : (warn.length ? '<div class="r">提醒：還有 ' + warn.length + ' 項紅色沒對上，確認照片無誤仍可入帳</div>' : '');
 }
 
 /* ---------- 動作 ---------- */
@@ -447,6 +461,8 @@ async function autoCreatePreview() {
 }
 async function doConfirm() {
   if (!(await save())) return;
+  update();
+  if (cur._warn && cur._warn.length && !confirm('還有 ' + cur._warn.length + ' 項紅色提醒沒對上：\n\n' + cur._warn.join('\n') + '\n\n成本與損益以各列金額為準。已對照照片確認，仍要入帳嗎？')) return;
   var pv = await autoCreatePreview();
   if (pv.vendors.length || pv.items.length) {
     var parts = [];
@@ -456,7 +472,7 @@ async function doConfirm() {
   }
   try { await API.call('/slips/' + encodeURIComponent(cur.id) + '/confirm', { method: 'POST', body: {} });
     dirty = false; var id = cur.id; cur = null; $('work').innerHTML = '<div class="detail"><div class="msg ok">' + esc(id) + ' 已入帳</div></div>'; loadList(); }
-  catch (e) { say((e.code === 'RED_FLAGS' ? '後端檢核不通過：' : '') + e.message, 'err'); if (e.code === 'RED_FLAGS') { try { var d = await API.call('/slips/' + encodeURIComponent(cur.id)); d.lines = d.lines.map(function (l) { return Object.assign({ checked: 0, flags: [], item_id: null }, l); }); cur = d; var m = e.message; render(); say('後端檢核不通過：' + m, 'err'); } catch (x) {} } }
+  catch (e) { say(e.message, 'err'); }
 }
 async function doReturn() {
   var reason = prompt('退回原因（會顯示給門市，例如：照片太糊）', '照片不清楚，請重拍');

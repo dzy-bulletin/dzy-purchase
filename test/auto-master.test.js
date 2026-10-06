@@ -105,13 +105,13 @@ test('入帳自動建品項＋alias；下一張同廠商同寫法自動帶入（
   } finally { await t.close(); }
 });
 
-test('入帳失敗（紅色檢核）整筆回滾，不留自動建的主檔；取消入帳不刪主檔', async () => {
+test('入帳失敗（缺進貨日期）整筆回滾，不留自動建的主檔；取消入帳不刪主檔', async () => {
   const t = await startApp();
   try {
     const db = t.app.db;
     const acc = await t.login('acc-c', PASS.SEED_PASS_ACC_C);
     const bad = mkReview(db, { vendorRaw: '回滾商行', lines: [L('回滾品', 100)] });
-    db.prepare('UPDATE slips SET total = 999 WHERE id = ?').run(bad);           // 總額對不上 → SUM_MISMATCH 紅
+    db.prepare('UPDATE slips SET doc_date = NULL WHERE id = ?').run(bad);       // 缺日期 → 自動建主檔之後才擋（紅色只提醒不擋，2026-10-07）
     const r = await t.call('POST', `/slips/${bad}/confirm`, { token: acc });
     assert.strictEqual(r.ok, false);
     assert.strictEqual(vendorsOf(db, 'C').length, 0); assert.strictEqual(itemsOf(db, 'C').length, 0);

@@ -5,7 +5,7 @@ const RED = new Set(['AMOUNT_MISMATCH', 'SUM_MISMATCH', 'PRICE_MISSING']);
 const STICKY_LINE = ['AMOUNT_FIXED'];            // 歷史事實型旗標：重算時保留（人工改過該欄位則去掉）
 const STICKY_SLIP = ['DATE_FIXED'];   // HANDWRITTEN 不 sticky：依 handwritten_note 是否有內容重算
 
-const { round2, near, sumCheck } = require('../web/js/rules');
+const { round2, near, moneyEq, sumCheck } = require('../web/js/rules');
 const { normText } = require('./slips-common');   // 前後端共用同一份總額規則
 const sortFlags = (set) => FLAG_ORDER.filter((f) => set.has(f));
 const hasRed = (flags) => flags.some((f) => RED.has(f));
@@ -88,7 +88,7 @@ function evaluate(slip, lines, ctx) {
     for (const k of STICKY_LINE) if ((l.flags || []).includes(k)) f.add(k);
     const { qty, unit_price: p, amount: a } = l;
     if (p == null) f.add('PRICE_MISSING');
-    else if (qty != null && a != null && !near(round2(qty * p), a)) f.add('AMOUNT_MISMATCH');
+    else if (qty != null && a != null && !moneyEq(qty * p, a)) f.add('AMOUNT_MISMATCH');   // 四捨五入後相符就不算錯
     const item = resolve(l);
     if (!item) f.add('ITEM_UNMAPPED');
     else if (!l.unit || (l.unit !== item.base_unit && !hasConv(item.id, l.unit))) f.add('UNIT_UNCONVERTED');   // 空白單位＝查不到換算（與 calc.factorOf 同一判斷）
@@ -121,7 +121,7 @@ function postprocess(ai, shotDate, ctx) {
     if (qty != null && price != null) {
       const calc = round2(qty * price);
       if (amt == null) amt = calc;
-      else if (!near(calc, amt) && amt > 0 && calc > amt && Number.isInteger(amt)
+      else if (!moneyEq(qty * price, amt) && amt > 0 && calc > amt && Number.isInteger(amt)
                && String(Math.round(calc)).startsWith(String(amt))) { amt = calc; flags.push('AMOUNT_FIXED'); }   // 漏零
     }
     return { seq: i + 1, raw_name: normText(x.name, 200), item_id: null, qty, unit: normText(x.unit, 20),

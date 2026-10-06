@@ -254,8 +254,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (m[3] === 'retry') { s.status = 'queued'; return ok(res, { id: s.id, status: s.status }); }
     if (m[3] === 'confirm') {
-      const reds = redFlags(s);
-      if (reds.length || s.lines.some(l => !l.checked)) return fail(res, 409, 'RED_FLAGS', '還有紅色檢核或未打勾的列：' + reds.join('、'));
+      // 紅色只提醒不擋（2026-10-07，與正式後端一致）；只擋未打勾
+      if (s.lines.some(l => !l.checked)) return fail(res, 409, 'CONFLICT', '還有明細列沒打勾');
       s.status = 'confirmed'; return ok(res, { id: s.id, status: s.status });
     }
     if (m[3] === 'unconfirm') { if (!json().reason) return fail(res, 400, 'BAD_INPUT', '必須填寫原因'); s.status = 'review'; return ok(res, { id: s.id, status: s.status }); }

@@ -360,8 +360,7 @@ function makeApp(cfg, opts) {
     if (s.status !== 'review') throw new ApiError('CONFLICT', '只有「待核對」的貨單可以入帳');
     const before = snapshot(s);
     autoCreateMaster(s, A.whoOf(p));                                     // 入帳才自動補建廠商／品項（同一交易；後面任何檢查失敗整筆回滾）
-    const r = recheck(slipRow(s.id));                                    // 後端重算，不信前端
-    if (r.red.length) throw new ApiError('RED_FLAGS', `還有紅色檢核沒處理：${[...new Set(r.red)].join('、')}`);
+    const r = recheck(slipRow(s.id));                                    // 後端重算，不信前端；紅色只是提醒，不擋入帳（Eason 2026-10-07），旗標照存進稽核紀錄
     const cur = slipRow(s.id);
     if (!cur.doc_date) throw new ApiError('BAD_INPUT', '缺少進貨日期');
     if (!r.lines.length) throw new ApiError('BAD_INPUT', '沒有品項明細');

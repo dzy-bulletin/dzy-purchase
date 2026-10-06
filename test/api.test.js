@@ -99,7 +99,7 @@ async function slipInReview(t, aiText, store = 'C01', pw = PASS.SEED_PASS_C01) {
   return up.data.id;
 }
 
-test('worker：漏零 → AMOUNT_FIXED；品牌隔離；有紅旗標 confirm → RED_FLAGS', async () => {
+test('worker：漏零 → AMOUNT_FIXED；品牌隔離；缺單價 confirm → BAD_INPUT', async () => {
   let text = AI();
   const t = await startApp({ recognize: async () => text });
   try {
@@ -122,15 +122,15 @@ test('worker：漏零 → AMOUNT_FIXED；品牌隔離；有紅旗標 confirm →
     const stC = await t.login('C01', PASS.SEED_PASS_C01), stM = await t.login('M01', PASS.SEED_PASS_M01);
     const pic = await t.call('GET', `/photos/${id}/1`, { token: stC }); assert.strictEqual(pic.status, 200); assert.strictEqual(pic.type, 'image/jpeg');
     assert.strictEqual((await t.call('GET', `/photos/${id}/1`, { token: stM })).error, 'FORBIDDEN');
-    // 改成缺單價 → 紅旗標 → confirm 被擋
+    // 改成缺單價 → 紅旗標；缺數字是資料不完整 → confirm 被擋（BAD_INPUT）
     const lid = d.lines[0].id;
     const put = await t.call('PUT', `/slips/${id}`, { token: accC, body: { lines: [{ id: lid, raw_name: '範例肉末', qty: 120, unit: '公斤', unit_price: null, amount: null, checked: 1 }] } });
     assert.ok(put.data.lines[0].flags.includes('PRICE_MISSING'));
     const c1 = await t.call('POST', `/slips/${id}/confirm`, { token: accC });
-    assert.strictEqual(c1.error, 'RED_FLAGS'); assert.strictEqual(c1.status, 409);
-    // 補單價，但總額不符 → SUM_MISMATCH 也擋
-    await t.call('PUT', `/slips/${id}`, { token: accC, body: { total: 999, lines: [{ id: lid, raw_name: '範例肉末', qty: 120, unit: '公斤', unit_price: 45, amount: 5400, checked: 1 }] } });
-    assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: accC })).error, 'RED_FLAGS');
+    assert.strictEqual(c1.error, 'BAD_INPUT'); assert.strictEqual(c1.status, 400);
+    // 補單價，但總額不符 → SUM_MISMATCH 紅（只是提醒，這裡先不入帳）
+    const p999 = await t.call('PUT', `/slips/${id}`, { token: accC, body: { total: 999, lines: [{ id: lid, raw_name: '範例肉末', qty: 120, unit: '公斤', unit_price: 45, amount: 5400, checked: 1 }] } });
+    assert.ok(p999.data.flags.includes('SUM_MISMATCH'));
     // 全部處理好 → 入帳成功；audit 有紀錄
     await t.call('PUT', `/slips/${id}`, { token: accC, body: { total: 5400, lines: [{ id: lid, raw_name: '範例肉末', qty: 120, unit: '公斤', unit_price: 45, amount: 5400, checked: 1 }] } });
     const ok = await t.call('POST', `/slips/${id}/confirm`, { token: accC });
@@ -153,10 +153,11 @@ test('未打勾不能入帳；return 寫入原因且門市看得到；p6 缺單�
     const acc = await t.login('acc-c', PASS.SEED_PASS_ACC_C), st = await t.login('C01', PASS.SEED_PASS_C01);
     const d = (await t.call('GET', `/slips/${id}`, { token: acc })).data;
     assert.ok(d.lines[0].flags.includes('PRICE_MISSING')); assert.strictEqual(d.lines[0].unit_price, null);
-    assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: acc })).error, 'RED_FLAGS');
-    // 補單價（不勾）→ 沒紅旗標但未打勾
-    await t.call('PUT', `/slips/${id}`, { token: acc, body: { lines: [{ id: d.lines[0].id, raw_name: '範例雞腿', qty: 36, unit_price: 246.89, amount: 8888 }] } });
-    assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: acc })).error, 'RED_FLAGS'); // 36*246.89=8888.04 ≠ 8888
+    assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: acc })).error, 'BAD_INPUT');   // 缺單價＝資料不完整
+    // 補單價（不勾）→ 36×246.89＝8888.04，四捨五入＝8888 相符、沒紅旗標；但未打勾
+    const p4 = await t.call('PUT', `/slips/${id}`, { token: acc, body: { lines: [{ id: d.lines[0].id, raw_name: '範例雞腿', qty: 36, unit_price: 246.89, amount: 8888 }] } });
+    assert.ok(!p4.data.lines[0].flags.includes('AMOUNT_MISMATCH')); assert.ok(!p4.data.flags.includes('SUM_MISMATCH'));
+    assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: acc })).error, 'CONFLICT');
     const r = await t.call('POST', `/slips/${id}/return`, { token: acc, body: { reason: '照片模糊' } });
     assert.strictEqual(r.data.status, 'returned');
     const mine = (await t.call('GET', '/slips?mine=1', { token: st })).data;
@@ -234,14 +235,14 @@ test('#2 confirm 要求總額與每列數量／單價／金額，缺值就擋', 
   try {
     const { id, acc, d } = await reviewSlip(t);
     const lid = d.lines[0].id;
-    // 總額清掉 → 紅旗標 SUM_MISMATCH，confirm 被擋
+    // 總額清掉 → 紅旗標 SUM_MISMATCH，缺總額 confirm 被擋
     const p1 = await t.call('PUT', `/slips/${id}`, { token: acc, body: { total: null, lines: [LN(lid)] } });
     assert.ok(p1.data.flags.includes('SUM_MISMATCH'));
-    assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: acc })).error, 'RED_FLAGS');
+    assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: acc })).error, 'BAD_INPUT');
     // 新增一列只有數量單價、金額空 → 該列金額遺失，不可入帳
     const p2 = await t.call('PUT', `/slips/${id}`, { token: acc, body: { total: 5400, lines: [LN(lid), { raw_name: '新列', qty: 3, unit: '個', unit_price: 100, amount: null, checked: 1 }] } });
     assert.ok(p2.data.flags.includes('SUM_MISMATCH'));
-    assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: acc })).error, 'RED_FLAGS');
+    assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: acc })).error, 'BAD_INPUT');
     // 補齊 → 可入帳（加總 5400+300 = 5700）
     await t.call('PUT', `/slips/${id}`, { token: acc, body: { total: 5700, lines: [LN(lid), { raw_name: '新列', qty: 3, unit: '個', unit_price: 100, amount: 300, checked: 1 }] } });
     assert.strictEqual((await t.call('POST', `/slips/${id}/confirm`, { token: acc })).data.status, 'confirmed');
@@ -507,5 +508,31 @@ test('#16f reopen 清掉殘留的 error', async () => {
     await t.call('POST', `/slips/${id}/return`, { token: acc, body: { reason: 'x' } });
     await t.call('POST', `/slips/${id}/reopen`, { token: acc });
     assert.strictEqual(t.app.db.prepare('SELECT error FROM slips WHERE id = ?').get(id).error, null);
+  } finally { await t.close(); }
+});
+
+test('2026-10-07 四捨五入：5742.86＋287＝6029.86 對總額 6030 相符；紅色只提醒不擋入帳', async () => {
+  const t = await startApp({ recognize: async () => AI() });
+  try {
+    const { id, acc, d } = await reviewSlip(t);
+    const lid = d.lines[0].id;
+    const put = (body) => t.call('PUT', `/slips/${id}`, { token: acc, body });
+    // 總額四捨五入
+    let r = await put({ tax: 287, total: 6030, lines: [LN(lid, { qty: 2, unit_price: 2871.43, amount: 5742.86 })] });
+    assert.ok(!r.data.flags.includes('SUM_MISMATCH'), JSON.stringify(r.data.flags));
+    r = await put({ tax: 287, total: 6031, lines: [LN(lid, { qty: 2, unit_price: 2871.43, amount: 5742.86 })] });
+    assert.ok(r.data.flags.includes('SUM_MISMATCH'));                                   // 差 1.14 → 仍是紅
+    // 單列四捨五入：3×33.33＝99.99 → 100 相符；3×33.2＝99.6 → 100 相符；3×33.1＝99.3 → 99 ≠ 100 紅
+    r = await put({ tax: null, total: 100, lines: [LN(lid, { qty: 3, unit_price: 33.33, amount: 100 })] });
+    assert.ok(!r.data.lines[0].flags.includes('AMOUNT_MISMATCH')); assert.ok(!r.data.flags.includes('SUM_MISMATCH'));
+    r = await put({ tax: null, total: 100, lines: [LN(lid, { qty: 3, unit_price: 33.1, amount: 100 })] });
+    assert.ok(r.data.lines[0].flags.includes('AMOUNT_MISMATCH'));
+    // 紅色（數量×單價≠金額、加總≠總額）仍可入帳；旗標留在稽核紀錄
+    r = await put({ tax: null, total: 150, lines: [LN(lid, { qty: 3, unit_price: 33.1, amount: 100 })] });
+    assert.ok(r.data.flags.includes('SUM_MISMATCH'));
+    const c = await t.call('POST', `/slips/${id}/confirm`, { token: acc });
+    assert.strictEqual(c.ok, true, JSON.stringify(c)); assert.strictEqual(c.data.status, 'confirmed');
+    const a = t.app.db.prepare("SELECT after FROM audit WHERE slip_id = ? AND action = 'confirm'").get(id);
+    assert.ok(a.after.includes('SUM_MISMATCH') && a.after.includes('AMOUNT_MISMATCH'));
   } finally { await t.close(); }
 });

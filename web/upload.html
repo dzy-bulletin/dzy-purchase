@@ -75,7 +75,7 @@
       <select id="vendorSel" aria-label="廠商" style="margin-top:.5rem"></select>
       <input id="vendorName" class="hidden" placeholder="請輸入廠商名稱" style="margin-top:.5rem">
       <div class="step" style="margin-top:1.2rem"><b>2</b><h2 style="margin:0">拍貨單</h2></div>
-      <p class="muted">長單可拍多張，會算同一張貨單。</p>
+      <p class="muted">長單可拍多張（最多 6 張），會算同一張貨單。</p>
       <input id="cam" type="file" accept="image/*" capture="environment" class="hidden">
       <input id="pick" type="file" accept="image/*" multiple class="hidden">
       <div class="row">
@@ -83,6 +83,7 @@
         <button id="pickBtn" type="button" class="grow">從相簿選</button>
       </div>
       <div id="thumbs" class="thumbs"></div>
+      <p id="limitNote" class="muted" style="margin:0"></p>
       <button id="sendBtn" type="button" class="good bigbtn" disabled>送出這張貨單</button>
     </div>
 
@@ -185,13 +186,17 @@ function vendorValue() {
 /* ---------- 拍照 ---------- */
 $('camBtn').onclick = function () { $('cam').click(); };
 $('pickBtn').onclick = function () { $('pick').click(); };
+var MAX_PHOTOS = 6;   // 與伺服器 config.MAX_PHOTOS 一致：一張貨單最多 6 張照片
 async function addFiles(files) {
   showMsg('');
+  var room = Math.max(0, MAX_PHOTOS - staged.length), skipped = Math.max(0, files.length - room);
+  files = Array.prototype.slice.call(files, 0, room);   // 超過的先丟掉，不浪費時間縮圖
   for (var i = 0; i < files.length; i++) {
     try { var b = await resize(files[i]); if (!batchCid) batchCid = uuid4(); staged.push({ blob: b, url: URL.createObjectURL(b) }); }
     catch (e) { showMsg(e.message, 'err'); }
   }
   renderThumbs();
+  if (skipped) showResult('warn', '最多 ' + MAX_PHOTOS + ' 張', '<p>一張貨單最多拍 ' + MAX_PHOTOS + ' 張照片，多選的 ' + skipped + ' 張沒有加進來。</p><p>如果是兩張不同的貨單，請先送出這張，再拍下一張。</p>', [{ id: 'resOk', label: '知道了', fn: hideResult }]);
 }
 $('cam').onchange = $('pick').onchange = function (e) { addFiles(e.target.files).then(function () { e.target.value = ''; }); };
 function renderThumbs() {
@@ -204,7 +209,12 @@ function renderThumbs() {
   if (!staged.length && !sending) batchCid = null;
   checkSend();
 }
-function checkSend() { $('sendBtn').disabled = sending || !(staged.length && vendorValue()); }
+function checkSend() {
+  $('sendBtn').disabled = sending || !(staged.length && vendorValue());
+  var full = staged.length >= MAX_PHOTOS;
+  $('camBtn').disabled = $('pickBtn').disabled = full;
+  $('limitNote').textContent = full ? '已經 ' + MAX_PHOTOS + ' 張（上限），請送出這張貨單' : '';
+}
 
 $('sendBtn').onclick = async function () {
   if (sending) return;                       // 防連點：處理中一律忽略

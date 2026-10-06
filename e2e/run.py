@@ -819,6 +819,25 @@ def process_slip(page, S, D, M, s, final_cb=None):
     page.wait_for_timeout(150)
     ui = page.evaluate(READ_JS)
     eq(f'{lab}：全部打勾後「入帳」鈕可按', bool(ui['confirmDisabled']), False)
+    if not D.get('soft_red_done'):                  # 紅色只提醒不擋（2026-10-07）：總額故意改錯 → 仍可按入帳、按下先跳確認窗；取消後改回
+        D['soft_red_done'] = True
+        page.fill('#f_total', str(int(st['total']) + 5))
+        page.dispatch_event('#f_total', 'input')
+        page.wait_for_timeout(200)
+        ui2 = page.evaluate(READ_JS)
+        check(f'{lab}：總額對不上（紅）時「入帳」鈕仍可按', not ui2['confirmDisabled'], ui2['note'])
+        check(f'{lab}：紅色改成提醒文字', re.fullmatch(r'提醒：還有 \d+ 項紅色沒對上，確認照片無誤仍可入帳', ui2['note'].strip()) is not None, ui2['note'])
+        DLG['log'].clear(); DLG['dismiss'] = True
+        ck(page, '#confirmBtn', '入帳（紅色提醒確認窗按取消）')
+        page.wait_for_timeout(1000)
+        DLG['dismiss'] = False
+        eq(f'{lab}：紅色提醒確認窗按取消＝沒有入帳', S.q('SELECT status FROM slips WHERE id=?', sid)[0]['status'], 'review')
+        check(f'{lab}：確認窗列出紅色項目', bool(DLG['log']) and '項紅色提醒沒對上' in last_dialog()[1] and '總額' in last_dialog()[1] and '成本與損益以各列金額為準' in last_dialog()[1], DLG['log'][-1:] if DLG['log'] else '沒跳確認窗')
+        page.fill('#f_total', fnum(st['total']))
+        page.dispatch_event('#f_total', 'input')
+        ck(page, '#saveBtn', '儲存（改回正確總額）')
+        page.wait_for_function("()=>document.getElementById('actMsg').innerText.indexOf('已儲存')>=0", timeout=15000)
+        DLG['log'].clear()
     scan(page, '核對頁（可入帳）')
     pv = preview_text(M, st)
     DLG['log'].clear()

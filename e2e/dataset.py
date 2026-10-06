@@ -36,6 +36,15 @@ def near(a, b):
     return abs(a - b) < 0.01
 
 
+def money_eq(x, ref):
+    """規格（Eason 2026-10-07）：單上數字是整數 → 算出來的數四捨五入到整數再比；有小數 → 比到小數 2 位。"""
+    if x is None or ref is None:
+        return False
+    if float(ref).is_integer():
+        return jsround(x + 1e-9) == ref
+    return near(r2(x), ref)
+
+
 def parse_num(x):
     if x is None:
         return None
@@ -91,10 +100,10 @@ def sum_check(amounts, subtotal, tax, total, inc):
     missing = total is None or not amounts or any(a is None for a in amounts)
     s = r2(sum(a or 0 for a in amounts))
     if inc:
-        ok = (not missing and near(s, total) and (tax is None or (tax >= 0 and tax < total))
-              and (subtotal is None or tax is None or near(r2(subtotal + tax), total)))
+        ok = (not missing and money_eq(s, total) and (tax is None or (tax >= 0 and tax < total))
+              and (subtotal is None or tax is None or money_eq(subtotal + tax, total)))
     else:
-        ok = (not missing and near(r2(s + (tax or 0)), total) and (subtotal is None or near(s, subtotal)))
+        ok = (not missing and money_eq(s + (tax or 0), total) and (subtotal is None or money_eq(s, subtotal)))
     return s, ok, missing
 
 
@@ -106,13 +115,15 @@ def sum_why(lines_amounts, subtotal, tax, total, inc):
     if missing:
         return '總額或某一列金額沒有填，請對照照片補上。'
     if inc:
-        if abs(s - total) >= 0.01:
+        if tax is not None and tax >= total:
+            return '稅額 %s 不應大於或等於總額 %s，請檢查稅額是不是讀成了總計。' % (fmt(tax), fmt(total))
+        if not money_eq(s, total):
             return ('品項加總 %s，但單上總額是 %s，差 %s。這張單已勾選「品項金額已含稅」，品項加總應該直接等於總額' % (fmt(s), fmt(total), fmt(r2(abs(s - total)))))
         us = r2(subtotal + tax)
         return '未稅合計 %s ＋ 稅額 %s ＝ %s，但總額是 %s，差 %s。' % (fmt(subtotal), fmt(tax), fmt(us), fmt(total), fmt(r2(abs(us - total))))
     t = tax or 0
     should = r2(s + t)
-    if abs(should - total) >= 0.01:
+    if not money_eq(should, total):
         d = fmt(r2(abs(should - total)))
         if tax is not None:
             return '品項加總 %s ＋ 稅額 %s ＝ %s，但單上總額是 %s，差 %s。' % (fmt(s), fmt(t), fmt(should), fmt(total), d)
@@ -561,7 +572,7 @@ def expected_recognition(ai, shot, ctx):
             calc = r2(q * p)
             if a is None:
                 a = calc
-            elif (not near(calc, a)) and a > 0 and calc > a and float(a).is_integer() and str(jsround(calc)).startswith(str(int(a))):
+            elif (not money_eq(q * p, a)) and a > 0 and calc > a and float(a).is_integer() and str(jsround(calc)).startswith(str(int(a))):
                 a = calc
                 lf.add('AMOUNT_FIXED')
         raw = norm_text(x['name'], 200)
@@ -573,7 +584,7 @@ def expected_recognition(ai, shot, ctx):
         f = l['flags']
         if l['price'] is None:
             f.add('PRICE_MISSING')
-        elif l['qty'] is not None and l['amount'] is not None and not near(r2(l['qty'] * l['price']), l['amount']):
+        elif l['qty'] is not None and l['amount'] is not None and not money_eq(l['qty'] * l['price'], l['amount']):
             f.add('AMOUNT_MISMATCH')
         it = ctx['resolve'](l['raw'])
         l['item'] = it['name'] if it else None
@@ -595,7 +606,7 @@ def line_view(l):
         f.add('ITEM_UNMAPPED')
     if l['price'] is None:
         f.add('PRICE_MISSING')
-    elif l['qty'] is not None and l['amount'] is not None and abs(r2(l['qty'] * l['price']) - l['amount']) >= 0.01:
+    elif l['qty'] is not None and l['amount'] is not None and not money_eq(l['qty'] * l['price'], l['amount']):
         f.add('AMOUNT_MISMATCH')
     bad = any(l[k] is None or l[k] <= 0 for k in ('qty', 'price', 'amount'))
     hasr = bad or any(c in RED for c in f)
