@@ -13,7 +13,7 @@ test('P4 create-accounts：建立 5 門市＋2 會計＋admin；會計品牌 C�
   const pws = []; for (let i = 0; i < 8; i++) pws.push('pw-test-' + i, 'pw-test-' + i);   // 每個帳號輸入兩次
   const io = mkIo(['acc-a', '測試會計甲', 'acc-b', '測試會計乙', 'adm1', '測試管理者'], pws);
   const r = await run(db, io, {});
-  assert.deepStrictEqual(r.created, ['CF', 'MDGF', 'MZTGF', 'MZTZS', 'MZTLZL', 'acc-a', 'acc-b', 'adm1']);
+  assert.deepStrictEqual(r.created, ['CF', 'MDGF', 'MZTGF', 'MZTJS', 'MZTLZL', 'acc-a', 'acc-b', 'adm1']);
   assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM stores').get().c, 5);
   assert.strictEqual(db.prepare("SELECT brand_id FROM stores WHERE code='MDGF'").get().brand_id, 'X');
   assert.strictEqual(db.prepare("SELECT brand_id FROM stores WHERE code='CF'").get().brand_id, 'C');

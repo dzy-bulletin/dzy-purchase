@@ -105,7 +105,7 @@ test('P4 門市代號：實際代號登入、帳號名稱不可與門市代號�
   const t = await startApp();
   try {
     const admin = await t.login('admin', PASS.SEED_PASS_ADMIN);
-    for (const [code, brand] of [['CF', 'C'], ['MDGF', 'X'], ['MZTGF', 'M'], ['MZTZS', 'M'], ['MZTLZL', 'M']]) {
+    for (const [code, brand] of [['CF', 'C'], ['MDGF', 'X'], ['MZTGF', 'M'], ['MZTJS', 'M'], ['MZTLZL', 'M']]) {
       const r = await t.call('POST', '/admin/stores', { token: admin, body: { code, name: `${code}（測試）`, brand_id: brand, password: 'pw-store1' } });
       assert.strictEqual(r.ok, true, code);
       const lg = await t.call('POST', '/login', { body: { account: code, password: 'pw-store1' } });
