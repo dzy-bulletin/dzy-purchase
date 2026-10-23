@@ -1,11 +1,14 @@
 /* 共用 API 包裝：帶 Bearer token、解 {ok,data}、401 回登入。 */
 'use strict';
 var API = (function () {
+  /* 嵌入鼎兆元管理系統（?embed=dzy，而且真的被嵌在別的頁面裡）：登入來自管理系統的入場券，token 存 sessionStorage（分頁關掉就沒了），key 與一般登入分開 */
+  var EMBED = (function () { try { return new URLSearchParams(location.search).get('embed') === 'dzy' && window.parent !== window; } catch (e) { return false; } })();
   // 門市頁與會計頁分開存登入狀態，同一台電腦先後登入兩種帳號才不會互相蓋掉
-  var KEY = 'purchase_session_' + (window.PAGE_ROLE || 'default');
-  function session() { try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { return null; } }
-  function setSession(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
-  function clearSession() { try { localStorage.removeItem(KEY); } catch (e) {} }
+  var KEY = EMBED ? 'purchase_embed_session' : 'purchase_session_' + (window.PAGE_ROLE || 'default');
+  function store() { return EMBED ? sessionStorage : localStorage; }
+  function session() { try { return JSON.parse(store().getItem(KEY) || 'null'); } catch (e) { return null; } }
+  function setSession(s) { try { store().setItem(KEY, JSON.stringify(s)); } catch (e) {} }
+  function clearSession() { try { store().removeItem(KEY); } catch (e) {} }
 
   function ApiError(code, message, status, data) {
     var e = new Error(message || code); e.code = code; e.status = status; e.data = data; return e;
@@ -33,7 +36,7 @@ var API = (function () {
     try { j = await res.json(); } catch (e) {}
     if (res.status === 401 && !opts.noAuthRedirect) {
       clearSession();
-      if (typeof API.onUnauthorized === 'function') API.onUnauthorized();
+      if (typeof API.onUnauthorized === 'function') API.onUnauthorized(j && j.message);
     }
     if (j && j.error === 'PASSWORD_CHANGE_REQUIRED' && typeof API.onPasswordRequired === 'function') API.onPasswordRequired();
     if (!j || j.ok !== true) {
@@ -53,10 +56,16 @@ var API = (function () {
     var s = session(); if (s) setSession(Object.assign({}, s, { token: d.token, expires_at: d.expires_at, must_change_password: false }));
     return d;
   }
+  /* 嵌入：用管理系統給的入場券換貨單系統的登入 */
+  async function sso(ticket) {
+    var d = await call('/sso', { method: 'POST', body: { ticket: ticket }, noAuthRedirect: true });
+    setSession(d);
+    return d;
+  }
   function logout() { var s = session(); clearSession(); if (s && s.token) { try { fetch(CFG.API_BASE + '/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + s.token } }).catch(function () {}); } catch (e) {} } }
   function update(patch) { var s = session(); if (s) setSession(Object.assign({}, s, patch)); }
 
-  return { call: call, login: login, changePassword: changePassword, onPasswordRequired: null, logout: logout, update: update, session: session, onUnauthorized: null };
+  return { embed: EMBED, sso: sso, call: call, login: login, changePassword: changePassword, onPasswordRequired: null, logout: logout, update: update, session: session, onUnauthorized: null };
 })();
 
 /* 伺服器存 UTC（ISO），畫面一律顯示台灣時間 YYYY-MM-DD HH:mm */

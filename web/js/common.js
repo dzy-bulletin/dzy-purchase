@@ -63,29 +63,114 @@ var Common = (function () {
     Array.prototype.forEach.call(document.querySelectorAll('#snav a[data-page]'), function (a) {
       if (a.dataset.page === page && a.dataset.key === key) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
     });
+    if (Embed) Embed.sync();
   }
   /* 核對各狀態筆數（counts: {review:n, returned:n, ...}） */
   function setCounts(counts) {
     Array.prototype.forEach.call(document.querySelectorAll('#snav [data-cnt]'), function (el) {
       var v = counts[el.dataset.cnt]; el.textContent = v == null ? '' : v;
     });
+    if (Embed) Embed.badges(counts);
+  }
+  /* 品牌切換：admin＝工作品牌、多品牌會計＝目前品牌（單品牌不顯示）。一般模式放側欄，嵌入模式放主欄頂部 */
+  function pickerHTML(s) {
+    var picker = s.role === 'admin' ? '<label class="spick">工作品牌<select id="brandPick">' + ['X', 'M', 'C'].map(function (b) { return '<option value="' + b + '"' + (adminBrand() === b ? ' selected' : '') + '>' + BRAND_NAME[b] + '</option>'; }).join('') + '</select></label>' : '';
+    if (s.role === 'accountant' && (s.brands || []).length > 1) {
+      picker = '<label class="spick">目前品牌<select id="brandSwitch">' + s.brands.map(function (b) { return '<option value="' + esc(b.id) + '"' + (s.brand_id === b.id ? ' selected' : '') + '>' + esc(b.name || BRAND_NAME[b.id] || b.id) + '</option>'; }).join('') + '</select></label>';
+    }
+    return picker;
   }
   function sideHTML(s) {
     var groups = NAV_GROUPS.map(function (g) {
       var items = g.items.filter(function (i) { return i[3] !== 'admin' || s.role === 'admin'; }).map(function (i) {
         var cnt = g.label === '核對' ? '<span class="cnt" data-cnt="' + i[1] + '"></span>' : '';
-        return '<a href="' + i[0] + '#' + i[1] + '" data-page="' + i[0] + '" data-key="' + i[1] + '" title="' + i[2] + '"><span class="ic" aria-hidden="true">' + icon(i[1]) + '</span><span class="tx">' + i[2] + '</span>' + cnt + '</a>';
+        return '<a href="' + i[0] + (API.embed ? location.search : '') + '#' + i[1] + '" data-page="' + i[0] + '" data-key="' + i[1] + '" title="' + i[2] + '"><span class="ic" aria-hidden="true">' + icon(i[1]) + '</span><span class="tx">' + i[2] + '</span>' + cnt + '</a>';
       }).join('');
       return '<div class="sgrp" role="group" aria-label="' + g.label + '"><div class="slabel">' + g.label + '</div>' + items + '</div>';
     }).join('');
-    var picker = s.role === 'admin' ? '<label class="spick">工作品牌<select id="brandPick">' + ['X', 'M', 'C'].map(function (b) { return '<option value="' + b + '"' + (adminBrand() === b ? ' selected' : '') + '>' + BRAND_NAME[b] + '</option>'; }).join('') + '</select></label>' : '';
-    if (s.role === 'accountant' && (s.brands || []).length > 1) {      // 多品牌會計：側欄上方品牌切換（單品牌不顯示）
-      picker = '<label class="spick">目前品牌<select id="brandSwitch">' + s.brands.map(function (b) { return '<option value="' + esc(b.id) + '"' + (s.brand_id === b.id ? ' selected' : '') + '>' + esc(b.name || BRAND_NAME[b.id] || b.id) + '</option>'; }).join('') + '</select></label>';
-    }
+    var picker = API.embed ? '' : pickerHTML(s);
     var brand = '<div class="brand"><div class="blogo"><div class="logos"></div></div><div><div class="bt js-bt"></div><div class="bs js-bs"></div></div></div>';
     var nm = String(s.name || '');
     return '<div id="sidein"><div id="sidew">' + brand + picker + '<nav id="snav" aria-label="主選單">' + groups + '</nav>' +
       '<div class="suser"><div class="who"><div class="av" aria-hidden="true">' + esc(nm.charAt(0) || '?') + '</div><div class="wt"><div class="nm">' + esc(nm) + '</div><div class="rl">' + esc(ROLE_TEXT[s.role] || s.role) + '</div></div></div><button id="chpw" type="button">改密碼</button><button id="logout" type="button">登出</button></div></div></div>';
+  }
+
+
+  /* ---------- 嵌入鼎兆元管理系統（?embed=dzy；dzy docs/purchase-fin/spec.md §1、§3、§5）----------
+     ‧沒 token：不顯示登入框，送 dzy-purchase-ready 給 parent，等 dzy-purchase-sso 帶入場券來兌換。
+     ‧只理會 source＝window.parent 且 origin 在白名單內的訊息；送出時 targetOrigin 一律寫死（白名單逐一送，瀏覽器只會投遞給相符的那個），不用 '*'。
+     ‧九個分頁交給管理系統畫在頁頂（dzy-purchase-nav）；點分頁收到 dzy-purchase-go；頁內小切換（待核對｜退回、品項｜廠商｜損益對照、帳號｜門市）放主欄頂部。 */
+  var Embed = null;
+  var DZY_ORIGINS = ['https://dzy.mozhuting.com'].concat(/^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? ['http://localhost:8777', 'http://127.0.0.1:8777'] : []);
+  var EMBED_TABS = [['review', '待核對'], ['confirmed', '已入帳'], ['failed', '辨識失敗'], ['alerts', '價格提醒'], ['price', '單價走勢'], ['cost', '食材成本'], ['daily', '每日進貨'], ['items', '品項廠商'], ['users', '帳號', 'admin']];
+  var EMBED_GO = { review: ['review.html', 'review'], confirmed: ['review.html', 'confirmed'], failed: ['review.html', 'failed'], alerts: ['reports.html', 'alerts'], price: ['reports.html', 'price'],
+    cost: ['reports.html', 'cost'], daily: ['reports.html', 'daily'], items: ['admin.html', 'items'], users: ['admin.html', 'users'] };
+  var EMBED_OF = { returned: 'review', vendors: 'items', pnl: 'items', stores: 'users' };          // 頁內小切換 → 屬於哪個分頁
+  var EMBED_SUB = { review: [['review', '待核對'], ['returned', '退回']], items: [['items', '品項'], ['vendors', '廠商'], ['pnl', '損益對照']], users: [['users', '帳號'], ['stores', '門市']] };
+  function makeEmbed(h) {      // h: {start(), wait(msg, err)}
+    var parentOrigin = null, badge = {}, busy = false, lastReady = 0;
+    function post(m) {
+      (parentOrigin ? [parentOrigin] : DZY_ORIGINS).forEach(function (o) { try { window.parent.postMessage(m, o); } catch (e) { /* parent 不接受就算了 */ } });
+    }
+    function ready() { lastReady = Date.now(); post({ type: 'dzy-purchase-ready', v: 1 }); }
+    function key() { return (location.hash || '').slice(1) || NAV_DEFAULT[curPage()]; }
+    function curId() { var k = key(); return EMBED_OF[k] || (EMBED_GO[k] ? k : ''); }
+    function isAdminS() { var s = API.session(); return !!(s && s.role === 'admin'); }
+    function postNav() {
+      if (!API.session()) return;
+      var items = EMBED_TABS.filter(function (t) { return t[2] !== 'admin' || isAdminS(); }).map(function (t) {
+        return { id: t[0], label: t[1], badge: (t[0] === 'review' || t[0] === 'failed') ? (badge[t[0]] || 0) : 0 };
+      });
+      post({ type: 'dzy-purchase-nav', v: 1, items: items, cur: curId() });
+    }
+    function renderSub() {
+      var box = $('esub'); if (!box) return;
+      var id = curId(), k = key(), subs = (EMBED_SUB[id] || []).filter(function (x) { return x[0] !== 'stores' || isAdminS(); });
+      box.innerHTML = subs.length > 1 ? subs.map(function (x) { return '<button type="button" role="tab" data-sub="' + x[0] + '" aria-selected="' + (x[0] === k) + '">' + esc(x[1]) + '</button>'; }).join('') : '';
+      Array.prototype.forEach.call(box.querySelectorAll('[data-sub]'), function (b) { b.onclick = function () { if (b.dataset.sub !== key()) location.hash = b.dataset.sub; }; });
+    }
+    function go(id) {
+      if (typeof id !== 'string' || !EMBED_GO.hasOwnProperty(id) || (id === 'users' && !isAdminS())) return;
+      if (id === curId()) return;
+      var t = EMBED_GO[id];
+      if (t[0] === curPage()) location.hash = t[1];                                  // 同一頁：改 hash，由各頁的 onHash 接手
+      else location.href = t[0] + location.search + '#' + t[1];                   // 跨頁：保留 ?embed=dzy（與 ?api= 等）
+    }
+    async function redeem(ticket) {
+      if (busy) return;
+      busy = true;
+      var had = !!API.session();
+      try {
+        await API.sso(ticket);
+        if (had) location.reload(); else h.start();
+      } catch (e) {
+        if (!had) h.wait(e.message, true);
+      } finally { busy = false; }
+    }
+    function logout() { API.logout(); h.wait('已登出貨單核對。', false); }
+    async function loadBadges() {        // 非核對頁也要有待核對／辨識失敗的數字
+      var out = {};
+      await Promise.all(['review', 'failed'].map(async function (st) { try { out[st] = (await Common.get('/review', { status: st })).length; } catch (e) {} }));
+      if (badge.review == null) badge.review = out.review;
+      if (badge.failed == null) badge.failed = out.failed;
+      postNav();
+    }
+    window.addEventListener('message', function (e) {
+      if (e.source !== window.parent || DZY_ORIGINS.indexOf(e.origin) < 0) return;
+      var m = e.data;
+      if (!m || typeof m !== 'object' || m.v !== 1) return;
+      parentOrigin = e.origin;
+      if (m.type === 'dzy-purchase-sso' && typeof m.ticket === 'string' && /^[0-9a-f]{64}$/.test(m.ticket)) redeem(m.ticket);
+      else if (m.type === 'dzy-purchase-go') go(m.id);
+      else if (m.type === 'dzy-purchase-tabs') document.documentElement.classList.add('embed-tabs');     // 管理系統回覆「已畫好選單」：只記下，不再回送（否則來回無限循環）
+      else if (m.type === 'dzy-purchase-logout') logout();
+    });
+    return {
+      ready: ready, loadBadges: loadBadges,
+      sinceReady: function () { return Date.now() - lastReady; },
+      sync: function () { renderSub(); postNav(); },
+      badges: function (c) { if (c.review != null) badge.review = c.review; if (c.failed != null) badge.failed = c.failed; postNav(); }
+    };
   }
 
   /* 操作教學連結：門市頁連 #store，其他頁連 #acc；新分頁開啟 */
@@ -101,6 +186,7 @@ var Common = (function () {
   /* 頁面頂部大標題＋副標（核對／報表／設定頁，放在主欄最上方；品牌由側欄品牌區呈現） */
   function topbarHTML(o, s) {
     var b = s.role === 'admin' ? null : s.brand_id, nm = (BRAND_NAME[b]) || '';
+    if (API.embed) return '<header class="topbar"><div class="ehead"><h1>' + esc(o.title) + '</h1><div class="sub">貨單辨識系統' + (nm ? '｜' + esc(nm) : '') + '</div></div>' + pickerHTML(s) + '<div id="esub" class="esub" role="tablist" aria-label="頁內切換"></div></header>';
     return '<header class="topbar"><h1>' + esc(o.title) + '</h1><div class="sub">貨單辨識系統' + (nm ? '｜' + esc(nm) : '') + '</div></header>';
   }
 
@@ -119,7 +205,19 @@ var Common = (function () {
     }
     /* 標題區：登入／改密碼＝頁面最上方的深色頂條；登入後的導覽頁＝主欄頂部大標題 */
     function hdrToTop() { if (col && hdr.parentNode === col) shell.parentNode.insertBefore(hdr, shell); }
+    /* 嵌入：等管理系統的入場券（或顯示兌換失敗的原因） */
+    function showEmbedWait(text, err) {
+      hdrToTop(); if (shell) shell.classList.add('hidden');
+      app.classList.add('hidden'); loginBox.classList.remove('hidden');
+      hdr.innerHTML = ''; applyTheme(null);
+      loginBox.innerHTML = '<div class="page" style="max-width:440px;padding-top:2rem"><div class="card"><h1>' + esc(o.title) + '</h1>' +
+        '<p class="' + (err ? 'msg err' : 'muted') + '" role="status">' + esc(text || '正在從鼎兆元管理系統登入…') + '</p>' +
+        (err ? '<p class="muted">請回管理系統重新整理頁面後再進入。</p>' : '') +
+        '<button id="embedRetry" type="button" style="width:100%;margin-top:.6rem;min-height:44px">重新連線</button></div></div>';
+      $('embedRetry').onclick = function () { showEmbedWait(); Embed.ready(); };
+    }
     function showLogin() {
+      if (Embed) { showEmbedWait(); Embed.ready(); return; }
       hdrToTop(); if (shell) shell.classList.add('hidden');
       app.classList.add('hidden'); loginBox.classList.remove('hidden');
       hdr.innerHTML = headerHTML(o, null); applyTheme(null);
@@ -169,10 +267,10 @@ var Common = (function () {
       if ($('pwOut')) $('pwOut').onclick = function () { API.logout(); showLogin(); };
       if ($('pwCancel')) $('pwCancel').onclick = function () { start(true); };
     }
-    var started = false;
+    var started = false, noBrand = false;
     function start(resume) {
       var s = API.session();
-      if (s.must_change_password) { showChange(true); return; }
+      if (s.must_change_password && !Embed) { showChange(true); return; }
       loginBox.classList.add('hidden'); loginBox.innerHTML = ''; app.classList.remove('hidden');
       if (o.nav) {
         ensureShell().classList.remove('hidden'); col.insertBefore(hdr, app);
@@ -191,11 +289,30 @@ var Common = (function () {
       };
       if ($('brandPick')) $('brandPick').onchange = function () { try { localStorage.setItem(ADMIN_KEY, this.value); } catch (e) {} location.reload(); };
       if (resume && started) return;                        // 取消改密碼回到原頁：不重跑 onReady
-      started = true; o.onReady(s);
+      started = true;
+      if (s.role === 'accountant' && !(s.brands || []).length) {      // 從管理系統自動建的會計帳號，還沒指派品牌
+        noBrand = true;
+        app.classList.add('hidden');                          // 不動頁面原本的 DOM（各頁腳本載入時會綁按鈕），另放一塊提示
+        var nb = $('noBrand') || document.createElement('div'); nb.id = 'noBrand'; nb.className = 'page';
+        nb.innerHTML = '<div class="card"><h2>尚未指派品牌，請找 Eason</h2><p class="muted">你的帳號已建立，但還沒設定可以核對哪個品牌的貨單。Eason 在貨單系統「帳號」頁替你勾選品牌後，重新整理就能使用。</p></div>';
+        if (!nb.parentNode) app.parentNode.insertBefore(nb, app);
+        if (Embed) Embed.sync();
+        return;
+      }
+      if (Embed) Embed.loadBadges();
+      o.onReady(s);
     }
-    API.onUnauthorized = showLogin;
+    if (API.embed) {
+      document.documentElement.classList.add('embed');
+      Embed = makeEmbed({ start: function () { start(); }, wait: showEmbedWait });
+    }
+    API.onUnauthorized = !Embed ? showLogin : function (text) {
+      // 嵌入 session 失效（過期、權限變更）：顯示原因；1 分鐘內沒要過入場券就自動再要一次（過期的會無感重新進入）
+      showEmbedWait(text || '登入已失效', true);
+      if (Embed.sinceReady() > 60e3) Embed.ready();
+    };
     API.onPasswordRequired = function () { API.update({ must_change_password: true }); showChange(true); };
-    window.addEventListener('hashchange', function () { syncNav(); if (o.onHash && API.session()) o.onHash((location.hash || '').slice(1)); });
+    window.addEventListener('hashchange', function () { syncNav(); if (o.onHash && API.session() && !noBrand) o.onHash((location.hash || '').slice(1)); });
     var s0 = API.session();
     if (s0 && o.roles.indexOf(s0.role) >= 0) start(); else { if (s0) API.logout(); showLogin(); }
   }

@@ -49,6 +49,9 @@ function principalOf(kind, row, db, sessionBrand) {
 const whoOf = (p) => `${p.kind}:${p.id}`;
 
 const STORE_LOGIN_OFF_MSG = '門市請改用門市營運系統登入';
+const ACCT_LOGIN_OFF_MSG = '會計請改從鼎兆元管理系統（財務部門 → 貨單核對）進入';
+// ACCT_LOGIN_UNTIL 截止後（opts.acctLoginUntil＝截止時刻毫秒）：會計不能用密碼登入；admin 不受影響
+const acctLoginOff = (opts, role, now) => !!(opts && opts.acctLoginUntil && role === 'accountant' && now.getTime() >= opts.acctLoginUntil);
 
 function login(db, account, password, now, opts) {
   now = now || new Date();
@@ -66,6 +69,7 @@ function login(db, account, password, now, opts) {
     else db.prepare(`UPDATE ${table} SET fail_count = ? WHERE id = ?`).run(fails, row.id);
     throw new ApiError('AUTH', '帳號或密碼錯誤');
   }
+  if (kind === 'user' && acctLoginOff(opts, row.role, now)) throw new ApiError('FORBIDDEN', ACCT_LOGIN_OFF_MSG);   // 密碼對了才說（不洩漏帳號是否存在）
   db.prepare(`UPDATE ${table} SET fail_count = 0, locked_until = NULL WHERE id = ?`).run(row.id);
   const p = principalOf(kind, row, db, null);
   const token = crypto.randomBytes(32).toString('hex');
@@ -86,6 +90,12 @@ function authenticate(db, req, now, opts) {
   const row = db.prepare(`SELECT * FROM ${kind === 'store' ? 'stores' : 'users'} WHERE id = ?`).get(Number(id));
   if (!row || !row.active) throw new ApiError('AUTH', '帳號已停用');
   const p = principalOf(kind, row, db, s.brand_id); p.token_hash = s.token_hash;
+  if (s.sub) {                                          // 嵌入 session（管理系統兌券發的）：重查由 index.js 的 resolveEmbed 做；不走首次改密碼
+    p.embed = true; p.sub = s.sub; p._session = s; p.must_change_password = false;
+  } else if (kind === 'user' && acctLoginOff(opts, row.role, now || new Date())) {
+    db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(s.token_hash);      // 截止日前用密碼登入的會計 session 也一併失效
+    throw new ApiError('AUTH', ACCT_LOGIN_OFF_MSG);
+  }
   return p;
 }
 
@@ -149,4 +159,4 @@ function canSeeSlip(p, slip, { storeOwn = true } = {}) {
   return false;
 }
 
-module.exports = { authenticateServiceKey, changePassword, hashPassword, verifyPassword, login, authenticate, logout, switchBrand, requireRole, canSeeSlip, whoOf, sha256 };
+module.exports = { ACCT_LOGIN_OFF_MSG, principalOf, authenticateServiceKey, changePassword, hashPassword, verifyPassword, login, authenticate, logout, switchBrand, requireRole, canSeeSlip, whoOf, sha256 };

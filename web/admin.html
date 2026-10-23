@@ -254,15 +254,21 @@ async function viewStores() {
 }
 
 /* ---------- 帳號（admin） ---------- */
+/* 可管理品牌；會計沒指派品牌（從管理系統自動建的帳號）要看得出來 */
+function brandCell(u) {
+  var t = (u.brand_ids || []).map(function (b) { return BRAND_NAME[b] || b; }).join('、');
+  if (t) return esc(t);
+  return u.role === 'accountant' ? '<span style="color:var(--red-t);font-weight:700">尚未指派品牌</span>' : '—';
+}
 async function viewUsers() {
   var list; try { list = await API.call('/admin/users'); } catch (e) { $('body').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; return; }
   var ROLE = { accountant: '會計', admin: '管理員' };
-  $('body').innerHTML = '<div class="tools"><button id="add" type="button" class="primary">＋ 新增帳號</button></div><div class="tblwrap"><table><thead><tr><th>帳號</th><th>姓名</th><th>角色</th><th>可管理品牌</th><th>狀態</th><th></th></tr></thead><tbody>' +
-    list.map(function (u) { return '<tr class="' + (isOff(u.active) ? 'off' : '') + '"><td>' + esc(u.username) + '</td><td>' + esc(u.name) + '</td><td>' + esc(ROLE[u.role] || u.role) + '</td><td>' + esc((u.brand_ids || []).map(function (b) { return BRAND_NAME[b] || b; }).join('、') || '—') + '</td><td>' + stateCell(u.active) + '</td><td class="n"><button class="sm" type="button" data-e="' + u.id + '">編輯</button></td></tr>'; }).join('') + '</tbody></table></div>';
+  $('body').innerHTML = '<div class="tools"><button id="add" type="button" class="primary">＋ 新增帳號</button></div><div class="tblwrap"><table><thead><tr><th>帳號</th><th>姓名</th><th>角色</th><th>可管理品牌</th><th>管理系統同仁編號</th><th>狀態</th><th></th></tr></thead><tbody>' +
+    list.map(function (u) { return '<tr class="' + (isOff(u.active) ? 'off' : '') + '"><td>' + esc(u.username) + '</td><td>' + esc(u.name) + '</td><td>' + esc(ROLE[u.role] || u.role) + '</td><td>' + brandCell(u) + '</td><td>' + (u.dzy_sub ? '<span style="font-family:var(--mono)">' + esc(u.dzy_sub) + '</span>' : '<span class="muted">—</span>') + (u.sso_only ? '<div class="muted" style="font-size:.8rem">只能從管理系統進入</div>' : '') + '</td><td>' + stateCell(u.active) + '</td><td class="n"><button class="sm" type="button" data-e="' + u.id + '">編輯</button></td></tr>'; }).join('') + '</tbody></table></div>';
   function edit(u) {
     openForm({ title: u ? '編輯帳號' : '新增帳號', value: u || { active: 1, role: 'accountant', brand_ids: ['X'] },
       fields: [{ k: 'username', label: '帳號' }, { k: 'name', label: '姓名' }, { k: 'role', label: '角色', type: 'select', options: [['accountant', '會計'], ['admin', '管理員']] },
-        { k: 'brand_ids', label: '可管理品牌（會計至少勾一個，可多選；管理員免勾）', type: 'brands' }, { k: 'active', label: '啟用', type: 'check', def: 1 }, { k: 'password', label: '密碼', type: 'password', ph: u ? '留空＝不修改' : '' }],
+        { k: 'brand_ids', label: '可管理品牌（會計至少勾一個，可多選；管理員免勾）', type: 'brands' }, { k: 'dzy_sub', label: '管理系統同仁編號（例 DZY001；留空＝不綁）' }, { k: 'active', label: '啟用', type: 'check', def: 1 }, { k: 'password', label: '密碼', type: 'password', ph: u ? '留空＝不修改' : '' }],
       onSave: function (o) {
         if (!o.username || !o.name) throw new Error('請填帳號與姓名');
         if (o.role === 'accountant' && !o.brand_ids.length) throw new Error('會計帳號至少要勾一個品牌');

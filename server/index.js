@@ -13,6 +13,8 @@ const { evaluate, parseNum, parseManualDate, hasRed } = require('./postprocess')
 const calc = require('./calc');
 const { createWorker } = require('./worker');
 const { createPnlPush } = require('./pnl-push');
+const dzyClient = require('./dzy');
+const sso = require('./sso');
 const { photoFile, matchVendor, makeCtx, normText, findVendorByName, findItemByName, okAutoVendorName, okAutoItemName } = require('./slips-common');
 
 const PREFIX = '/purchase/api';
@@ -27,6 +29,9 @@ function makeApp(cfg, opts) {
   const db = opts.db || openDb(cfg.DATA_DIR);
   const worker = createWorker({ db, cfg, recognize: opts.recognize, log: opts.log });
   const pnlPush = createPnlPush({ db, cfg, now, fetchImpl: opts.fetchImpl, log: opts.log });
+  const dzy = opts.dzy || dzyClient.create(cfg, { fetch: opts.dzyFetch });
+  const resolveEmbed = sso.makeResolver(db, dzy);
+  const authOpts = () => ({ storeLoginOff: cfg.STORE_LOGIN_OFF, acctLoginUntil: cfg.ACCT_LOGIN_UNTIL });      // 每次現讀（測試會在執行中改 cfg）
 
   // ---------- 小工具 ----------
   const taipeiDate = () => new Date(now().getTime() + 8 * 3600e3).toISOString().slice(0, 10);
@@ -115,7 +120,7 @@ function makeApp(cfg, opts) {
   route('POST', /^\/login$/, null, async ({ req }) => {
     const raw = await readBody(req, 64 * 1024);
     const b = parseJson(raw);
-    const r = A.login(db, b.account, b.password, now(), { storeLoginOff: cfg.STORE_LOGIN_OFF });
+    const r = A.login(db, b.account, b.password, now(), authOpts());
     const p = r.principal;
     return { token: r.token, expires_at: r.expires_at, role: p.role, must_change_password: p.must_change_password, name: p.name, brand: p.brand_id, brand_id: p.brand_id, brands: p.brands, store_id: p.store_id, store: p.kind === 'store' ? { id: p.id, code: p.code, name: p.name } : null };
   });
@@ -449,6 +454,8 @@ function makeApp(cfg, opts) {
   // ---------- P3：損益對照、健康檢查 ----------
   require('./pnl-map')(rctx);
   require('./health')(rctx);
+  // ---------- 會計從鼎兆元管理系統嵌入 ----------
+  sso.register(route, { db, dzy, now, readBody, parseJson });
 
   // ---------- 派送 ----------
   async function handle(req, res) {
@@ -473,7 +480,9 @@ function makeApp(cfg, opts) {
             if (!ok) throw new ApiError('FORBIDDEN', '服務金鑰只能用於上傳貨單、查詢廠商與查詢自己門市的貨單和照片');
             p = sp; A.requireRole(p, ...r.roles);
           } else {
-            p = A.authenticate(db, req, now(), { storeLoginOff: cfg.STORE_LOGIN_OFF }); A.requireRole(p, ...r.roles);
+            p = A.authenticate(db, req, now(), authOpts());
+            if (p.embed) await resolveEmbed(p, now());          // 管理系統嵌入 session：超過 5 分鐘就向管理系統重查
+            A.requireRole(p, ...r.roles);
           }
           if (p.must_change_password && sub !== '/password' && sub !== '/logout') throw new ApiError('PASSWORD_CHANGE_REQUIRED', '第一次登入請先設定你自己的密碼');
         }

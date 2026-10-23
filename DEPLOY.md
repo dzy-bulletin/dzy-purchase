@@ -717,6 +717,10 @@ curl -s --max-time 10 http://127.0.0.1:8793/health | python3 -c 'import json,sys
 |---|---|
 | `STORE_SVC_KEY` | 服務金鑰。未設或空字串＝通道關閉。有設時，請求帶 `X-Store-Key`（金鑰）＋`X-Store-Code`（門市代號，須存在且啟用）即視為該門市。**只放行** `POST /purchase/api/slips`（上傳）與 `GET /purchase/api/slips?mine=1`（查自己 30 天），其他路由一律 403；金鑰錯、門市代號不存在或停用回 401。 |
 | `STORE_LOGIN_OFF` | 設為 `1` 時，門市帳號的密碼登入回 403「門市請改用門市營運系統登入」，已存在的門市 session 也立即失效；會計與管理者登入完全不受影響。其他值＝關閉。 |
+| `DZY_PLATFORM_URL` | 鼎兆元管理系統平台後端 `/api` 網址（會計從管理系統「財務部門 → 貨單核對」嵌入進來時兌換入場券、每 5 分鐘重查身分）。與下一列任一沒設＝`POST /purchase/api/sso`、`/sso/counts` 回 403。 |
+| `DZY_PURCHASE_SVC_KEY` | 與平台 Script Property `PURCHASE_SVC_KEY` 相同的服務金鑰（只在兩台本機服務之間，瀏覽器拿不到）。 |
+| `ACCT_LOGIN_UNTIL` | `YYYY-MM-DD`。台北時間該日結束後，會計（role accountant）的密碼登入回 403「會計請改從鼎兆元管理系統（財務部門 → 貨單核對）進入」，之前用密碼登入的會計 session 也失效；admin 不受影響。沒設＝不限。 |
+| `ALLOW_ORIGIN` | 加上 `https://dzy.mozhuting.com`（管理系統首頁直接呼叫 `/sso/counts` 取待核對筆數）。 |
 
 **金鑰由 Eason 在 Mac mini 自己的終端機寫進 `.env`（Claude 不經手、不讀、不印金鑰）**，例如：
 

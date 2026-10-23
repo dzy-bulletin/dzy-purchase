@@ -180,7 +180,7 @@ test('遷移 v10：既有 v9 資料庫（含已入帳資料、既有品項）安
     INSERT INTO slip_lines (slip_id, seq, raw_name, item_id, qty, unit, unit_price, amount, checked) VALUES ('S1',1,'舊A',1,10,'公斤',10,100,1);`);
   raw.close();
   let db = openDb(dir);
-  assert.strictEqual(db.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.strictEqual(db.prepare('PRAGMA user_version').get().user_version, 11);
   const items = db.prepare('SELECT * FROM items ORDER BY id').all();
   assert.deepStrictEqual(items.map((i) => [i.id, i.name, i.category, i.base_unit, i.active, i.auto_created]), [[1, '舊品項A', '食材', '公斤', 1, 0], [2, '舊品項B', '包材', '', 0, 0]]);
   assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM unit_conv').get().c, 1);
@@ -195,7 +195,7 @@ test('遷移 v10：既有 v9 資料庫（含已入帳資料、既有品項）安
   db.prepare("INSERT INTO items (brand_id, name, category, base_unit) VALUES ('C','舊程式寫入','食材','個')").run();
   db.close();
   db = openDb(dir);                                                // 冪等：再開一次不重跑、資料不變
-  assert.strictEqual(db.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.strictEqual(db.prepare('PRAGMA user_version').get().user_version, 11);
   assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM items').get().c, 4);
   db.close(); fs.rmSync(dir, { recursive: true, force: true });
 });
