@@ -8,12 +8,16 @@ const crypto = require('crypto');
 const { ApiError } = require('./http-util');
 const { audit } = require('./db');
 const { sha256, principalOf, whoOf } = require('./auth');
+const { TICKET_RE, BUSINESS_CODES } = require('./dzy');
 
 const EMBED_MS = 12 * 3600e3;          // 嵌入 session 有效期
 const RECHECK_MS = 5 * 60e3;           // 超過 5 分鐘沒成功確認就向管理系統重查
 const STALE_OK_MS = 30 * 60e3;         // 連不上時從 verified_at 起最多沿用 30 分鐘
 const RETRY_BACKOFF_MS = 30e3;         // 上次嘗試失敗後 30 秒內不再重試（避免連不上時每個請求都卡 8 秒）
 const SSO_ONLY_HASH = '!sso';          // 自動建的帳號：不是 scrypt 格式，密碼登入永遠失敗（admin 之後設了密碼才可以）
+
+const RATE_MAX = 20;                   // 同一來源每分鐘最多 20 次 /sso＋/sso/counts（合計），超過不打平台（平台兌換要拿全域鎖，防灑券拖慢）
+const RATE_WINDOW_MS = 60e3;
 
 const MSG_OFF = '尚未開通從管理系統進入，請洽 Eason';
 const MSG_DOWN = '暫時連不上管理系統，請稍後再試';
@@ -45,14 +49,46 @@ function autoUsername(db, sub) {
   return 'dzy-' + crypto.randomBytes(8).toString('hex');
 }
 
+// 來源 IP：socket remoteAddress；peer 是本機（Tailscale Funnel 進來都是 loopback）才信 X-Forwarded-For 最後一段
+function clientIp(req) {
+  const peer = String((req.socket && req.socket.remoteAddress) || '');
+  if (/^(127\.|::1$|::ffff:127\.)/.test(peer)) {
+    const xff = String(req.headers['x-forwarded-for'] || '').split(',').map((x) => x.trim()).filter(Boolean);
+    if (xff.length) return xff[xff.length - 1].slice(0, 64);
+  }
+  return peer || 'unknown';
+}
+
+// 每來源固定一分鐘窗的計數（記憶體 Map；每分鐘順手清掉過期的）
+function makeLimiter(now) {
+  const hits = new Map();
+  let lastSweep = 0;
+  return function hit(ip) {
+    const t = now().getTime();
+    if (t - lastSweep > RATE_WINDOW_MS) { for (const [k, v] of hits) if (t - v.start >= RATE_WINDOW_MS) hits.delete(k); lastSweep = t; }
+    let e = hits.get(ip);
+    if (!e || t - e.start >= RATE_WINDOW_MS) { e = { start: t, n: 0 }; hits.set(ip, e); }
+    e.n++;
+    if (e.n > RATE_MAX) throw new ApiError('TOO_MANY', '嘗試太頻繁，請稍後再試');
+  };
+}
+
 function register(route, { db, dzy, now, readBody, parseJson }) {
+  const limit = makeLimiter(now);
   const body = async (req) => parseJson(await readBody(req, 16 * 1024));
-  const ticketOf = (b) => { if (typeof b.ticket !== 'string' || !b.ticket) throw new ApiError('BAD_INPUT', '缺少入場券'); return b.ticket; };
+  // 先記一次（含格式不對的券），超過上限直接 429；券格式不對直接 BAD_INPUT，兩者都不打平台
+  const ticketFrom = async (req) => {
+    limit(clientIp(req));
+    const b = await body(req);
+    if (typeof b.ticket !== 'string' || !b.ticket) throw new ApiError('BAD_INPUT', '缺少入場券');
+    if (!TICKET_RE.test(b.ticket)) throw new ApiError('BAD_INPUT', '入場券格式不正確，請回管理系統重新整理');
+    return b.ticket;
+  };
   const dropSub = (sub) => db.prepare('DELETE FROM sessions WHERE sub = ?').run(sub);
 
   route('POST', /^\/sso$/, null, async ({ req }) => {
     if (!dzy.enabled()) throw new ApiError('FORBIDDEN', MSG_OFF);
-    const ticket = ticketOf(await body(req));
+    const ticket = await ticketFrom(req);
     const r = await dzy.redeem(ticket);
     if (r.kind === 'inactive' || r.kind === 'denied') { if (r.ident) dropSub(r.ident.sub); }
     if (r.kind !== 'ok') failFor(r);
@@ -85,7 +121,7 @@ function register(route, { db, dzy, now, readBody, parseJson }) {
   // 首頁提醒：會計＝自己全部品牌加總；admin＝全部。帳號還沒建（沒進來過）＝0
   route('POST', /^\/sso\/counts$/, null, async ({ req }) => {
     if (!dzy.enabled()) throw new ApiError('FORBIDDEN', MSG_OFF);
-    const ticket = ticketOf(await body(req));
+    const ticket = await ticketFrom(req);
     const r = await dzy.redeem(ticket);
     if (r.kind !== 'ok') failFor(r);
     const u = db.prepare('SELECT * FROM users WHERE dzy_sub = ?').get(r.ident.sub);
@@ -109,8 +145,11 @@ function makeResolver(db, dzy) {
       const cur = db.prepare('SELECT token_after FROM sessions WHERE token_hash = ?').get(th);
       if (cur && r.ident.token_after > cur.token_after) { drop(th); return { kind: 'token_changed' }; }   // 在管理系統登出全部裝置／改密碼／被重設
       db.prepare('UPDATE sessions SET verified_at = ?, tried_at = ? WHERE token_hash = ?').run(iso, iso, th);
-    } else if (r.kind === 'unreachable') {
+    } else if (r.kind === 'unreachable' || (r.kind === 'rejected' && !BUSINESS_CODES.has(r.error))) {
+      // 連不上，或平台回 200 但不是 JSON／形狀不對（BAD_JSON／BAD_SHAPE／BAD_SCHEMA／SUB_MISMATCH）：不是業務錯誤，當連不上（沿用 30 分鐘規則）
+      if (r.kind === 'rejected') console.error('管理系統重查回覆格式異常（' + String(r.error) + '），暫當連不上處理');
       db.prepare('UPDATE sessions SET tried_at = ? WHERE token_hash = ?').run(iso, th);
+      return { kind: 'unreachable' };
     } else {
       drop(th);
       if (r.kind === 'rejected') console.error('管理系統重查被拒絕（' + String(r.error) + '），已登出該使用者');
@@ -143,4 +182,4 @@ function makeResolver(db, dzy) {
   };
 }
 
-module.exports = { register, makeResolver, SSO_ONLY_HASH, EMBED_MS, RECHECK_MS, STALE_OK_MS, MSG_CHANGED, MSG_DOWN };
+module.exports = { clientIp, RATE_MAX, register, makeResolver, SSO_ONLY_HASH, EMBED_MS, RECHECK_MS, STALE_OK_MS, MSG_CHANGED, MSG_DOWN };

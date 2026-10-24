@@ -7,6 +7,7 @@ const http = require('http');
 const crypto = require('crypto');
 const { startApp, PASS } = require('./helpers');
 const { loadConfig } = require('../server/config');
+const { clientIp } = require('../server/sso');
 const D = require('../server/dzy');
 
 const SVC = 'fake-svc-for-tests';
@@ -21,6 +22,10 @@ async function fakePlatform() {
     req.on('end', () => {
       const send = (o) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
       if (st.down) { res.writeHead(502); return res.end('bad gateway'); }
+      st.calls.push({ raw: true });
+      if (st.garbage === 'html') { res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<!doctype html><p>maintenance</p>'); }
+      if (st.garbage === 'biz') return send({ ok: false, error: '輸入不正確', code: 'bad_input' });
+      if (st.garbage === 'shape') return send({ ok: true, data: { sub: 'DZY904', active: true } });
       let j; try { j = JSON.parse(b); } catch (e) { return send({ ok: false, code: 'bad_input' }); }
       st.calls.push({ action: j.action, ctype: req.headers['content-type'], payload: j.payload });
       const p = j.payload || {};
@@ -347,5 +352,70 @@ test('帳號頁 dzy_sub：格式驗證、大小寫整理、唯一衝突回 BAD_I
   assert.ok(au.some((a) => JSON.parse(a.after).dzy_sub === 'DZY007' && JSON.parse(a.before).dzy_sub === ''));
   // DB 層也擋重複
   assert.throws(() => c.app.db.prepare('UPDATE users SET dzy_sub = ? WHERE id = ?').run('DZY908', accM));
+  await c.done();
+});
+
+// ---------- 對抗審查補強 ----------
+test('/sso＋/sso/counts 限流：同一來源每分鐘合計 20 次，超過 429 不打平台；格式不對的券 BAD_INPUT 不打平台也算一次', async () => {
+  const c = await setup();
+  const raw = () => c.fp.calls.filter((x) => x.raw).length;
+  for (let i = 0; i < 10; i++) {
+    const r = await c.call('POST', i % 2 ? '/sso' : '/sso/counts', { body: { ticket: 'NOT-A-TICKET-' + i } });
+    assert.strictEqual(r.status, 400); assert.strictEqual(r.error, 'BAD_INPUT');
+  }
+  assert.strictEqual((await c.call('POST', '/sso', { body: { ticket: tk().toUpperCase() } })).status, 400);       // 大寫十六進位也不收
+  assert.strictEqual(raw(), 0);
+  for (let i = 0; i < 9; i++) assert.strictEqual((await c.call('POST', '/sso', { body: { ticket: tk() } })).status, 401);   // 隨機券：格式對，打平台
+  assert.strictEqual(raw(), 9);
+  let r = await c.call('POST', '/sso/counts', { body: { ticket: tk() } });                                         // 第 21 次
+  assert.strictEqual(r.status, 429); assert.strictEqual(r.error, 'TOO_MANY'); assert.strictEqual(r.message, '嘗試太頻繁，請稍後再試');
+  c.fp.person('DZY907');
+  r = await c.call('POST', '/sso', { body: { ticket: c.fp.ticket('DZY907') } });
+  assert.strictEqual(r.status, 429);
+  assert.strictEqual(raw(), 9);
+  // 從 loopback 進來（Funnel）：依 X-Forwarded-For 最後一段分開計
+  r = await c.call('POST', '/sso', { body: { ticket: c.fp.ticket('DZY907') }, headers: { 'X-Forwarded-For': '203.0.113.9, 198.51.100.7' } });
+  assert.strictEqual(r.status, 200);
+  // 一分鐘後恢復
+  c.clock.add(61e3);
+  r = await c.call('POST', '/sso', { body: { ticket: c.fp.ticket('DZY907') } });
+  assert.strictEqual(r.status, 200);
+  await c.done();
+});
+
+test('clientIp：只有 peer 是 loopback 才信 X-Forwarded-For 最後一段', () => {
+  const mk = (peer, xff) => ({ socket: { remoteAddress: peer }, headers: xff === undefined ? {} : { 'x-forwarded-for': xff } });
+  assert.strictEqual(clientIp(mk('127.0.0.1', '1.1.1.1, 2.2.2.2')), '2.2.2.2');
+  assert.strictEqual(clientIp(mk('::1', '3.3.3.3')), '3.3.3.3');
+  assert.strictEqual(clientIp(mk('::ffff:127.0.0.1', '4.4.4.4')), '4.4.4.4');
+  assert.strictEqual(clientIp(mk('127.0.0.1')), '127.0.0.1');
+  assert.strictEqual(clientIp(mk('192.0.2.5', '9.9.9.9')), '192.0.2.5');
+});
+
+test('嵌入 session 重查：平台回 200 但不是 JSON／形狀不對 → 當連不上（30 分鐘內放行、之後 503），不刪 session', async () => {
+  const c = await setup();
+  const err = console.error; console.error = () => {};
+  try {
+    c.fp.person('DZY904');
+    const tok = (await c.call('POST', '/sso', { body: { ticket: c.fp.ticket('DZY904') } })).data.token;
+    c.fp.garbage = 'html';
+    c.clock.add(6 * 60e3);
+    assert.strictEqual((await c.call('GET', '/review', { token: tok })).status, 200);
+    c.fp.garbage = 'shape';
+    c.clock.add(60e3);
+    assert.strictEqual((await c.call('GET', '/review', { token: tok })).status, 200);
+    assert.strictEqual(c.app.db.prepare('SELECT COUNT(*) n FROM sessions WHERE sub = ?').get('DZY904').n, 1);
+    c.clock.add(25 * 60e3);                                       // 距上次確認 32 分
+    const r = await c.call('GET', '/review', { token: tok });
+    assert.strictEqual(r.status, 503);
+    c.fp.garbage = null;
+    c.clock.add(31e3);
+    assert.strictEqual((await c.call('GET', '/review', { token: tok })).status, 200);
+    // 契約內的業務錯誤（bad_input）才刪 session
+    c.fp.garbage = 'biz';
+    c.clock.add(6 * 60e3);
+    assert.strictEqual((await c.call('GET', '/review', { token: tok })).status, 401);
+    assert.strictEqual(c.app.db.prepare('SELECT COUNT(*) n FROM sessions WHERE sub = ?').get('DZY904').n, 0);
+  } finally { console.error = err; }
   await c.done();
 });

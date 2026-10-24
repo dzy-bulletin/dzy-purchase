@@ -93,4 +93,4 @@ function create(cfg, overrides) {
   };
 }
 
-module.exports = { create, parseIdent, SUB_RE, TICKET_RE, TIMEOUT_MS };
+module.exports = { create, parseIdent, SUB_RE, TICKET_RE, TIMEOUT_MS, BUSINESS_CODES };
