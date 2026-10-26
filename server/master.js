@@ -183,6 +183,7 @@ module.exports = function register(ctx) {
     return db.tx(() => {
       const u = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(m[1]));
       if (!u) throw new ApiError('NOT_FOUND', '找不到這個帳號');
+      const before = userOut(u);           // 改之前先照下來（userOut 會即時查 user_brands，改完再查就是新的）
       const set = {};
       if (b.username !== undefined) {
         const un = String(b.username).trim();
@@ -198,12 +199,16 @@ module.exports = function register(ctx) {
       if (b.password !== undefined) { set.pass_hash = hashPassword(password(b.password)); set.fail_count = 0; set.locked_until = null; set.must_change_password = (p.kind === 'user' && p.id === u.id) ? 0 : 1; }
       if (b.dzy_sub !== undefined) { const sub = dzySub(b.dzy_sub, u.id); if (sub !== (u.dzy_sub || null)) set.dzy_sub = sub; }
       const cols = Object.keys(set);
+      // 角色或品牌清單真的變了（只改預設品牌、姓名不算）：網頁記著舊角色／品牌，這個帳號的 session 全部作廢，
+      // 嵌入頁會自動向管理系統重要入場券、密碼登入的要重新登入（不能降級自己，所以改的是自己時只會是沒變；保險起見保留自己這個 session）
+      const authChanged = (set.role !== undefined && set.role !== u.role) || (newIds && [...newIds].sort().join() !== before.brand_ids.join());
       if (newIds) setUserBrands(u.id, newIds);
       if (cols.length) db.prepare(`UPDATE users SET ${cols.map((c) => c + ' = ?').join(', ')} WHERE id = ?`).run(...cols.map((c) => set[c]), u.id);
       if (b.password !== undefined || set.active === 0) dropSessions('user', u.id);
+      else if (authChanged) db.prepare('DELETE FROM sessions WHERE who = ? AND token_hash <> ?').run(`user:${u.id}`, (p.kind === 'user' && p.id === u.id && p.token_hash) || '');
       else if (set.dzy_sub !== undefined) db.prepare('DELETE FROM sessions WHERE who = ? AND sub IS NOT NULL').run(`user:${u.id}`);   // 改／清同仁編號：舊的嵌入 session 作廢
       const row = db.prepare('SELECT * FROM users WHERE id = ?').get(u.id);
-      audit(db, who(p), 'admin_user_update', null, userOut(u), Object.assign(userOut(row), b.password !== undefined ? { password_changed: true } : {}));
+      audit(db, who(p), 'admin_user_update', null, before, Object.assign(userOut(row), b.password !== undefined ? { password_changed: true } : {}, authChanged ? { sessions_reset: true } : {}));
       return userOut(row);
     });
   });

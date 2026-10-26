@@ -96,8 +96,15 @@ test('P4 單品牌會計 brands 只有一個；門市／admin 不能切換；adm
     const tk = (await t.call('POST', '/login', { body: { account: 'acc-cx', password: 'pw-acccx' } })).data.token;
     await t.call('POST', '/session/brand', { token: tk, body: { brand_id: 'X' } });
     await t.call('PUT', `/admin/users/${id}`, { token: admin, body: { brand_ids: ['C'] } });
-    assert.ok((await t.call('GET', '/vendors?all=1', { token: tk })).data.every((x) => x.brand_id === 'C'), '被收回 X 後不能再看 X');
-    assert.strictEqual((await t.call('POST', '/session/brand', { token: tk, body: { brand_id: 'X' } })).status, 403);
+    // 2026-10-26 起：品牌清單變了＝這個帳號的 session 全部作廢（網頁記著舊品牌），重新登入只剩 C
+    assert.strictEqual((await t.call('GET', '/vendors?all=1', { token: tk })).status, 401);
+    const tk2 = (await t.call('POST', '/login', { body: { account: 'acc-cx', password: 'pw-acccx' } })).data.token;
+    assert.ok((await t.call('GET', '/vendors?all=1', { token: tk2 })).data.every((x) => x.brand_id === 'C'), '被收回 X 後不能再看 X');
+    assert.strictEqual((await t.call('POST', '/session/brand', { token: tk2, body: { brand_id: 'X' } })).status, 403);
+    // 收回品牌的保險仍在：session 記的品牌已不在清單內（例如直接改資料庫）→ 自動退回仍有權的品牌
+    await t.call('POST', '/session/brand', { token: tk2, body: { brand_id: 'C' } });
+    t.app.db.prepare("UPDATE sessions SET brand_id = 'X' WHERE who = ?").run('user:' + id);
+    assert.ok((await t.call('GET', '/vendors?all=1', { token: tk2 })).data.every((x) => x.brand_id === 'C'));
   } finally { await t.close(); }
 });
 

@@ -419,3 +419,54 @@ test('嵌入 session 重查：平台回 200 但不是 JSON／形狀不對 → �
   } finally { console.error = err; }
   await c.done();
 });
+
+// ---------- 2026-10-26：admin 改角色／品牌 → 這個帳號的 session 作廢（嵌入頁會自動重要入場券） ----------
+test('帳號頁改角色或品牌清單 → 該帳號 session（嵌入＋密碼）全部作廢；只改姓名／預設品牌不作廢；admin 改自己不會被登出', async () => {
+  const c = await setup();
+  const id = await c.uid('acc-x');
+  assert.strictEqual((await c.call('PUT', '/admin/users/' + id, { token: c.admin, body: { dzy_sub: 'DZY911' } })).status, 200);
+  c.fp.person('DZY911');
+  const embed = async () => { const r = await c.call('POST', '/sso', { body: { ticket: c.fp.ticket('DZY911') } }); assert.strictEqual(r.status, 200, JSON.stringify(r)); return r.data.token; };
+  const alive = async (tok) => (await c.call('GET', '/review', { token: tok })).status;
+  const put = async (body) => { const r = await c.call('PUT', '/admin/users/' + id, { token: c.admin, body }); assert.strictEqual(r.status, 200, JSON.stringify(r)); return r.data; };
+  const resets = () => c.app.db.prepare("SELECT after FROM audit WHERE action = 'admin_user_update'").all().filter((a) => JSON.parse(a.after).sessions_reset).length;
+
+  // 只改姓名：不作廢
+  let e1 = await embed();
+  const pw = await c.login('acc-x', PASS.SEED_PASS_ACC_X);
+  await put({ name: '測試會計改名' });
+  assert.strictEqual(await alive(e1), 200); assert.strictEqual(await alive(pw), 200);
+  // 給同樣的品牌清單（沒變）：不作廢
+  await put({ brand_ids: ['X'] });
+  assert.strictEqual(await alive(e1), 200);
+  assert.strictEqual(resets(), 0);
+
+  // 品牌清單變了（X → X＋M）：嵌入與密碼 session 都作廢；重新兌券拿到新品牌
+  await put({ brand_ids: ['X', 'M'] });
+  assert.strictEqual(await alive(e1), 401); assert.strictEqual(await alive(pw), 401);
+  assert.strictEqual(resets(), 1);
+  const au = c.app.db.prepare("SELECT before, after FROM audit WHERE action = 'admin_user_update' ORDER BY id DESC LIMIT 1").get();
+  assert.deepStrictEqual(JSON.parse(au.before).brand_ids, ['X']); assert.deepStrictEqual(JSON.parse(au.after).brand_ids, ['M', 'X']);   // 稽核的 before 是改之前
+  const r2 = await c.call('POST', '/sso', { body: { ticket: c.fp.ticket('DZY911') } });
+  assert.deepStrictEqual(r2.data.brands.map((b) => b.id).sort(), ['M', 'X']);
+  // 只改預設品牌（清單不變）：不作廢
+  await put({ brand_id: 'M' });
+  assert.strictEqual(await alive(r2.data.token), 200);
+
+  // 會計 → admin：作廢；重新兌券是 admin
+  await put({ role: 'admin' });
+  assert.strictEqual(await alive(r2.data.token), 401);
+  const r3 = await c.call('POST', '/sso', { body: { ticket: c.fp.ticket('DZY911') } });
+  assert.strictEqual(r3.data.role, 'admin');
+  // admin → 會計：也作廢
+  await put({ role: 'accountant', brand_ids: ['X'] });
+  assert.strictEqual(await alive(r3.data.token), 401);
+
+  // admin 改自己（角色仍是 admin）：不會把自己登出；降級自己照舊擋
+  const me = await c.uid('admin');
+  assert.strictEqual((await c.call('PUT', '/admin/users/' + me, { token: c.admin, body: { role: 'admin', name: '測試管理者' } })).status, 200);
+  assert.strictEqual((await c.call('GET', '/admin/users', { token: c.admin })).status, 200);
+  assert.strictEqual((await c.call('PUT', '/admin/users/' + me, { token: c.admin, body: { role: 'accountant', brand_ids: ['X'] } })).status, 400);
+  assert.strictEqual((await c.call('GET', '/admin/users', { token: c.admin })).status, 200);
+  await c.done();
+});

@@ -34,6 +34,7 @@ E2E_SEED=12345 python3 run.py          # 重現某一次的資料（失敗時會
 | 檔案 | 內容 |
 |---|---|
 | `run.py` | 主流程（Playwright）與所有檢查 |
+| `embed_resso.py` | 嵌入模式（?embed=dzy）權限變更自動重進（401 自動重要券一次、60 秒防循環、沒品牌頁自動跟上）；後端與管理系統全用 route 模擬，約 1 分鐘，`python3 embed_resso.py` |
 | `dataset.py` | 隨機資料（品牌／門市／會計／廠商／品項／換算／貨單／價格走勢／注入的錯）＋獨立算式 `Model`（成本、加權平均、漲跌提醒、legacy.xlsx、損益推送） |
 | `fake_ollama.py` `fake_ext.py` `photos.py` `bootstrap.js` | 假外部服務與初始化 |
 | `clickmap.py` | 按鈕與連結覆蓋稽核（複製自 mala-clock-in，key 規則補了：側欄連結用 data-key、建議鈕固定 key、輸入用 data-k） |
