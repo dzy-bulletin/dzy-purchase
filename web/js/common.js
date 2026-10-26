@@ -107,8 +107,11 @@ var Common = (function () {
     cost: ['reports.html', 'cost'], daily: ['reports.html', 'daily'], items: ['admin.html', 'items'], users: ['admin.html', 'users'] };
   var EMBED_OF = { returned: 'review', vendors: 'items', pnl: 'items', stores: 'users' };          // 頁內小切換 → 屬於哪個分頁
   var EMBED_SUB = { review: [['review', '待核對'], ['returned', '退回']], items: [['items', '品項'], ['vendors', '廠商'], ['pnl', '損益對照']], users: [['users', '帳號'], ['stores', '門市']] };
-  function makeEmbed(h) {      // h: {start(), wait(msg, err)}
-    var parentOrigin = null, badge = {}, busy = false, lastReady = 0;
+  /* 嵌入 session 被作廢（admin 改了角色／品牌、過期）：自動向管理系統再要一次入場券；每 60 秒最多自動一次（記在 sessionStorage，重新載入也算），
+     失敗或沒拿到券才顯示「回管理系統重新整理」。還沒指派品牌的畫面：載入、回到分頁、每 2 分鐘悄悄重要一次券，角色／品牌真的變了才重新載入。 */
+  var RESSO_KEY = 'purchase_embed_resso_at', RESSO_GAP = 60e3;
+  function makeEmbed(h) {      // h: {start(), wait(msg, err), started()}
+    var parentOrigin = null, badge = {}, busy = false, lastReady = 0, quiet = false, recovering = false, recTimer = 0, lastQuiet = 0, watching = false;
     function post(m) {
       (parentOrigin ? [parentOrigin] : DZY_ORIGINS).forEach(function (o) { try { window.parent.postMessage(m, o); } catch (e) { /* parent 不接受就算了 */ } });
     }
@@ -136,16 +139,47 @@ var Common = (function () {
       if (t[0] === curPage()) location.hash = t[1];                                  // 同一頁：改 hash，由各頁的 onHash 接手
       else location.href = t[0] + location.search + '#' + t[1];                   // 跨頁：保留 ?embed=dzy（與 ?api= 等）
     }
+    function brandKey(x) { return x ? [x.role, x.name, (x.brands || []).map(function (b) { return b.id; }).join(',')].join('|') : ''; }
     async function redeem(ticket) {
       if (busy) return;
       busy = true;
-      var had = !!API.session();
+      var prev = API.session(), wasQuiet = quiet;
+      quiet = false; recovering = false; clearTimeout(recTimer);
       try {
-        await API.sso(ticket);
-        if (had) location.reload(); else h.start();
+        var d = await API.sso(ticket);
+        if (prev && prev.token && prev.token !== d.token) {     // 舊 token 用不到了，順手登出（悄悄重要券時不會在伺服器累積 session）
+          try { fetch(CFG.API_BASE + '/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + prev.token } }).catch(function () {}); } catch (e) {}
+        }
+        if (wasQuiet && prev && brandKey(prev) === brandKey(d)) return;    // 悄悄重要券：角色／品牌沒變就不重新載入（不會無限重整）
+        if (prev || h.started()) location.reload(); else h.start();        // 頁面已經跑過（權限變更後自動重進）→ 重新載入，畫面全部重來
       } catch (e) {
-        if (!had) h.wait(e.message, true);
+        if (!prev) h.wait(e.message, true);
       } finally { busy = false; }
+    }
+    function canAuto() { var t = 0; try { t = Number(sessionStorage.getItem(RESSO_KEY)) || 0; } catch (e) {} return !(Date.now() - t < RESSO_GAP && Date.now() >= t); }
+    function markAuto() { try { sessionStorage.setItem(RESSO_KEY, String(Date.now())); } catch (e) {} }
+    /* API 回 401：自動重要一次入場券；這 60 秒內已經自動過、或 15 秒內沒換到 → 顯示原本的錯誤卡 */
+    function recover(text) {
+      if (recovering) return;
+      if (!canAuto()) { h.wait(text || '登入已失效', true); return; }
+      markAuto(); recovering = true;
+      h.wait('權限已更新，正在重新從鼎兆元管理系統登入…', false);
+      ready();
+      recTimer = setTimeout(function () { if (recovering) { recovering = false; h.wait(text || '登入已失效', true); } }, 15e3);
+    }
+    /* 尚未指派品牌：悄悄重要券（不改畫面） */
+    function quietRefresh() {
+      // 最多每 60 秒一次、分頁在背景不查（審查：同一個網路多人開著時，避免撞到 /sso 每來源每分鐘 20 次的限流）
+      if (busy || recovering || document.hidden || Date.now() - lastQuiet < 60e3) return;
+      lastQuiet = Date.now(); quiet = true; ready();
+    }
+    function watchBrand() {
+      quietRefresh();
+      if (watching) return;
+      watching = true;
+      setInterval(quietRefresh, 120e3);
+      window.addEventListener('focus', quietRefresh);
+      document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') quietRefresh(); });
     }
     function logout() { API.logout(); h.wait('已登出貨單核對。', false); }
     async function loadBadges() {        // 非核對頁也要有待核對／辨識失敗的數字
@@ -166,7 +200,7 @@ var Common = (function () {
       else if (m.type === 'dzy-purchase-logout') logout();
     });
     return {
-      ready: ready, loadBadges: loadBadges,
+      ready: ready, loadBadges: loadBadges, recover: recover, watchBrand: watchBrand,
       sinceReady: function () { return Date.now() - lastReady; },
       sync: function () { renderSub(); postNav(); },
       badges: function (c) { if (c.review != null) badge.review = c.review; if (c.failed != null) badge.failed = c.failed; postNav(); }
@@ -296,7 +330,7 @@ var Common = (function () {
         var nb = $('noBrand') || document.createElement('div'); nb.id = 'noBrand'; nb.className = 'page';
         nb.innerHTML = '<div class="card"><h2>尚未指派品牌，請找 Eason</h2><p class="muted">你的帳號已建立，但還沒設定可以核對哪個品牌的貨單。Eason 在貨單系統「帳號」頁替你勾選品牌後，重新整理就能使用。</p></div>';
         if (!nb.parentNode) app.parentNode.insertBefore(nb, app);
-        if (Embed) Embed.sync();
+        if (Embed) { Embed.sync(); Embed.watchBrand(); }
         return;
       }
       if (Embed) Embed.loadBadges();
@@ -304,13 +338,10 @@ var Common = (function () {
     }
     if (API.embed) {
       document.documentElement.classList.add('embed');
-      Embed = makeEmbed({ start: function () { start(); }, wait: showEmbedWait });
+      Embed = makeEmbed({ start: function () { start(); }, wait: showEmbedWait, started: function () { return started; } });
     }
-    API.onUnauthorized = !Embed ? showLogin : function (text) {
-      // 嵌入 session 失效（過期、權限變更）：顯示原因；1 分鐘內沒要過入場券就自動再要一次（過期的會無感重新進入）
-      showEmbedWait(text || '登入已失效', true);
-      if (Embed.sinceReady() > 60e3) Embed.ready();
-    };
+    // 嵌入 session 失效（過期、admin 改了角色／品牌）：自動向管理系統重要一次入場券，失敗才顯示原因
+    API.onUnauthorized = !Embed ? showLogin : function (text) { Embed.recover(text); };
     API.onPasswordRequired = function () { API.update({ must_change_password: true }); showChange(true); };
     window.addEventListener('hashchange', function () { syncNav(); if (o.onHash && API.session() && !noBrand) o.onHash((location.hash || '').slice(1)); });
     var s0 = API.session();
