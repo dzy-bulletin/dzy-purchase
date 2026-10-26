@@ -101,7 +101,17 @@ const MIGRATIONS = [
    INSERT INTO items_new (id, brand_id, name, category, base_unit, active, auto_created) SELECT id, brand_id, name, category, base_unit, active, 0 FROM items;
    UPDATE sqlite_sequence SET seq = (SELECT seq FROM sqlite_sequence WHERE name = 'items') WHERE name = 'items_new';
    DROP TABLE items;
-   ALTER TABLE items_new RENAME TO items;`
+   ALTER TABLE items_new RENAME TO items;`,
+  // v11（會計從鼎兆元管理系統嵌入，dzy docs/purchase-fin/spec.md §4）：
+  //  - users.dzy_sub＝管理系統同仁編號（DZY### 或 U:xx），可空、唯一（UNIQUE 索引；SQLite 多個 NULL 不衝突）
+  //  - sessions：sub（非空＝嵌入 session）、verified_at（上次向管理系統確認成功）、tried_at（上次嘗試）、token_after（兌券當下管理系統的 token_after）
+  `ALTER TABLE users ADD COLUMN dzy_sub TEXT;
+   CREATE UNIQUE INDEX idx_users_dzy_sub ON users(dzy_sub);
+   ALTER TABLE sessions ADD COLUMN sub TEXT;
+   ALTER TABLE sessions ADD COLUMN verified_at TEXT;
+   ALTER TABLE sessions ADD COLUMN tried_at TEXT;
+   ALTER TABLE sessions ADD COLUMN token_after INTEGER NOT NULL DEFAULT 0;
+   CREATE INDEX idx_sessions_sub ON sessions(sub);`
 ];
 
 function openDb(dataDir) {

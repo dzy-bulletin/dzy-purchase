@@ -6,6 +6,7 @@ const { audit } = require('./db');
 const { CATEGORIES } = require('./calc');
 const { normText } = require('./slips-common');
 const P = require('./pnl-push');
+const { SUB_RE } = require('./dzy');
 
 const STORE_CODE = /^[A-Z0-9]{2,10}$/;            // P4：門市代號＝實際代號（CF、MDGF、MZTGF…），不再綁品牌字首
 const MIN_PW = 6;
@@ -115,7 +116,21 @@ module.exports = function register(ctx) {
 
   // ---------- 帳號（會計／管理者）----------
   const brandIdsOf = (id) => db.prepare('SELECT brand_id FROM user_brands WHERE user_id = ? ORDER BY brand_id').all(id).map((r) => r.brand_id);
-  const userOut = (r) => ({ id: r.id, username: r.username, name: r.name, role: r.role, brand_id: r.brand_id, brand_ids: brandIdsOf(r.id), active: r.active ? 1 : 0 });
+  // dzy_sub＝管理系統同仁編號；sso_only＝從管理系統自動建、還沒設過密碼（不能用密碼登入）
+  const userOut = (r) => ({ id: r.id, username: r.username, name: r.name, role: r.role, brand_id: r.brand_id, brand_ids: brandIdsOf(r.id), active: r.active ? 1 : 0,
+    dzy_sub: r.dzy_sub || '', sso_only: String(r.pass_hash || '').charAt(0) === '!' ? 1 : 0 });
+  // 管理系統同仁編號：空字串／null＝清空；DZY 編號不分大小寫（存大寫）；唯一，衝突回 BAD_INPUT 中文訊息
+  function dzySub(v, selfId) {
+    if (v === null || v === undefined) return null;
+    let t = String(v).trim();
+    if (!t) return null;
+    if (/^dzy\d+$/i.test(t)) t = t.toUpperCase();
+    else if (/^u:/i.test(t)) t = 'U:' + t.slice(2);
+    if (!SUB_RE.test(t)) throw new ApiError('BAD_INPUT', '管理系統同仁編號格式不對：DZY 加至少 3 位數字（例如 DZY001），或 U: 加帳號代碼');
+    const dup = db.prepare('SELECT username, name FROM users WHERE dzy_sub = ? AND id <> ?').get(t, selfId || 0);
+    if (dup) throw new ApiError('BAD_INPUT', `管理系統同仁編號 ${t} 已經綁在帳號「${dup.username}」（${dup.name}），同一個編號只能綁一個帳號`);
+    return t;
+  }
   const isStoreCode = (u) => !!db.prepare('SELECT 1 FROM stores WHERE code = ?').get(String(u).toUpperCase());
   const USERNAME = /^[A-Za-z0-9._-]{3,40}$/;
   function userRole(b, cur) {
@@ -153,9 +168,10 @@ module.exports = function register(ctx) {
     if (db.prepare('SELECT 1 FROM users WHERE username = ?').get(username)) throw new ApiError('CONFLICT', '這個帳號已存在');
     const { role, brand, ids } = userRole(b, {});
     const pw = password(b.password);
+    const sub = dzySub(b.dzy_sub, 0);
     return db.tx(() => {
-      const id = db.prepare('INSERT INTO users (username, role, brand_id, name, pass_hash, active, must_change_password) VALUES (?,?,?,?,?,?,1)')
-        .run(username, role, brand, text(b.name, '姓名'), hashPassword(pw), bool(b.active, 1)).lastInsertRowid;
+      const id = db.prepare('INSERT INTO users (username, role, brand_id, name, pass_hash, active, must_change_password, dzy_sub) VALUES (?,?,?,?,?,?,1,?)')
+        .run(username, role, brand, text(b.name, '姓名'), hashPassword(pw), bool(b.active, 1), sub).lastInsertRowid;
       setUserBrands(Number(id), ids);
       const row = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(id));
       audit(db, who(p), 'admin_user_create', null, null, userOut(row));
@@ -180,10 +196,12 @@ module.exports = function register(ctx) {
       if (b.role !== undefined || b.brand_id !== undefined || b.brand_ids !== undefined) { const r = userRole(b, u); set.role = r.role; set.brand_id = r.brand; newIds = r.ids; }
       if (p.kind === 'user' && p.id === u.id && (set.active === 0 || (set.role && set.role !== 'admin'))) throw new ApiError('BAD_INPUT', '不能停用或降級自己的帳號');
       if (b.password !== undefined) { set.pass_hash = hashPassword(password(b.password)); set.fail_count = 0; set.locked_until = null; set.must_change_password = (p.kind === 'user' && p.id === u.id) ? 0 : 1; }
+      if (b.dzy_sub !== undefined) { const sub = dzySub(b.dzy_sub, u.id); if (sub !== (u.dzy_sub || null)) set.dzy_sub = sub; }
       const cols = Object.keys(set);
       if (newIds) setUserBrands(u.id, newIds);
       if (cols.length) db.prepare(`UPDATE users SET ${cols.map((c) => c + ' = ?').join(', ')} WHERE id = ?`).run(...cols.map((c) => set[c]), u.id);
       if (b.password !== undefined || set.active === 0) dropSessions('user', u.id);
+      else if (set.dzy_sub !== undefined) db.prepare('DELETE FROM sessions WHERE who = ? AND sub IS NOT NULL').run(`user:${u.id}`);   // 改／清同仁編號：舊的嵌入 session 作廢
       const row = db.prepare('SELECT * FROM users WHERE id = ?').get(u.id);
       audit(db, who(p), 'admin_user_update', null, userOut(u), Object.assign(userOut(row), b.password !== undefined ? { password_changed: true } : {}));
       return userOut(row);

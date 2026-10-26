@@ -13,6 +13,15 @@ function readDotenv(file, into) {
   } catch (e) { /* 沒有 .env 就用預設 */ }
 }
 
+// ACCT_LOGIN_UNTIL → 截止時刻（毫秒，台北時間隔天 00:00）；沒設＝null；格式不對印警告並當沒設
+function acctUntil(v) {
+  const t = String(v || '').trim();
+  if (!t) return null;
+  const ms = /^\d{4}-\d{2}-\d{2}$/.test(t) ? Date.parse(t + 'T00:00:00+08:00') : NaN;
+  if (!Number.isFinite(ms) || new Date(ms + 8 * 3600e3).toISOString().slice(0, 10) !== t) { console.error('ACCT_LOGIN_UNTIL 格式不對（要 YYYY-MM-DD），當作沒設：' + t.slice(0, 20)); return null; }
+  return ms + 86400e3;
+}
+
 function loadConfig(envIn) {
   const env = Object.assign({}, envIn || process.env);
   if (!envIn && env.PURCHASE_NO_DOTENV !== '1') {
@@ -42,6 +51,12 @@ function loadConfig(envIn) {
     BACKUP_TIMEOUT_MS: num(env.BACKUP_TIMEOUT_MS, 90000),
     STORE_SVC_KEY: env.STORE_SVC_KEY || '',                   // 門市營運系統服務金鑰；空＝通道關閉
     STORE_LOGIN_OFF: env.STORE_LOGIN_OFF === '1',             // 1＝門市密碼登入關閉（改走門市營運系統）
+    // 會計從鼎兆元管理系統嵌入（dzy 倉庫 docs/purchase-fin/spec.md §4）：平台 /api 網址＋服務金鑰；任一沒設＝/sso 回 FORBIDDEN
+    DZY_PLATFORM_URL: (env.DZY_PLATFORM_URL || '').trim(),
+    DZY_PURCHASE_SVC_KEY: (env.DZY_PURCHASE_SVC_KEY || '').trim(),
+    DZY_TIMEOUT_MS: num(env.DZY_TIMEOUT_MS, 8000),
+    // 會計密碼登入截止日（YYYY-MM-DD，台北時間該日結束後擋 role accountant 的密碼登入；admin 不擋）。沒設或格式不對＝不限
+    ACCT_LOGIN_UNTIL: acctUntil(env.ACCT_LOGIN_UNTIL),
     MAX_PHOTO_BYTES: 8 * 1024 * 1024,
     MAX_PHOTOS: 6,
     LOCK_AFTER: 5,

@@ -184,3 +184,14 @@ tr.yellow td{background:var(--yellow-bg)}
 /* 側欄字型、字級比照薪資系統（payroll.html 整頁 zoom 1.25；這裡只縮放側欄，主內容維持原尺寸，核對頁才放得下） */
 #side{font-family:"Noto Sans TC","PingFang TC",sans-serif}
 @media (min-width:861px) and (hover:hover) and (pointer:fine){#side{zoom:1.25;height:80vh}}  /* 80vh×1.25＝滿版高度 */
+
+/* 嵌入鼎兆元管理系統（?embed=dzy）：側欄（選單、改密碼、登出）交給管理系統；品牌切換與頁內小切換放主欄頂部 */
+html.embed #side{display:none}
+html.embed .topbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding-top:12px}
+html.embed .topbar .ehead{flex:1;min-width:0}
+html.embed .topbar .spick{opacity:1;visibility:visible;flex-direction:row;align-items:center;gap:.5rem;padding:0;color:var(--mute);letter-spacing:0;font-size:.85rem}
+html.embed .topbar .spick select{color:var(--ink);background:var(--surface);border-color:var(--line);min-height:40px;width:auto}
+.esub{display:flex;gap:6px;flex-wrap:wrap;width:100%}
+.esub:empty{display:none}
+.esub button{min-height:40px;padding:0 16px;border-radius:999px;font-weight:700}
+.esub button[aria-selected="true"]{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}

@@ -21,10 +21,10 @@ test('P5 遷移 v8：既有門市與會計＝1、admin＝0；新庫欄位存在'
   db.prepare("INSERT INTO users (username,role,brand_id,name,pass_hash) VALUES ('a1','accountant','X','甲',?)").run(h);
   db.prepare("INSERT INTO users (username,role,brand_id,name,pass_hash) VALUES ('ad','admin',NULL,'乙',?)").run(h);
   // 倒回 v7（模擬部署中途的舊庫）
-  db.exec('ALTER TABLE stores DROP COLUMN must_change_password; ALTER TABLE users DROP COLUMN must_change_password; ALTER TABLE slips DROP COLUMN tax_included; ALTER TABLE vendors DROP COLUMN tax_included; ALTER TABLE vendors DROP COLUMN auto_created; PRAGMA user_version = 7;');
+  db.exec('DROP INDEX idx_users_dzy_sub; DROP INDEX idx_sessions_sub; ALTER TABLE users DROP COLUMN dzy_sub; ALTER TABLE sessions DROP COLUMN sub; ALTER TABLE sessions DROP COLUMN verified_at; ALTER TABLE sessions DROP COLUMN tried_at; ALTER TABLE sessions DROP COLUMN token_after; ALTER TABLE stores DROP COLUMN must_change_password; ALTER TABLE users DROP COLUMN must_change_password; ALTER TABLE slips DROP COLUMN tax_included; ALTER TABLE vendors DROP COLUMN tax_included; ALTER TABLE vendors DROP COLUMN auto_created; PRAGMA user_version = 7;');
   db.close();
   db = openDb(dir);                                       // 重新開啟 → 跑 v8
-  assert.strictEqual(db.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.strictEqual(db.prepare('PRAGMA user_version').get().user_version, 11);
   assert.strictEqual(db.prepare("SELECT must_change_password m FROM stores WHERE code='S1'").get().m, 1);
   assert.strictEqual(db.prepare("SELECT must_change_password m FROM users WHERE username='a1'").get().m, 1);
   assert.strictEqual(db.prepare("SELECT must_change_password m FROM users WHERE username='ad'").get().m, 0);

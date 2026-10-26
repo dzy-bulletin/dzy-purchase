@@ -2020,7 +2020,10 @@ def admin_flows(P, S, D, M, slips):
     page.wait_for_selector('#add')
     page.wait_for_timeout(500)
     scan(page, '設定-帳號')
-    rows = page.evaluate("()=>[...document.querySelectorAll('#body tbody tr')].map(r=>[...r.children].slice(0,5).map(c=>c.innerText.trim()))")
+    # 第 5 欄是「管理系統同仁編號」（2026-10-24 嵌入管理系統新增；e2e 不綁，應為 —），比對時略過、另外檢查
+    rows = page.evaluate("()=>[...document.querySelectorAll('#body tbody tr')].map(r=>{const c=[...r.children].map(c=>c.innerText.trim());return c.slice(0,4).concat([c[5]]);})")
+    subs = page.evaluate("()=>[...document.querySelectorAll('#body tbody tr')].map(r=>r.children[4].innerText.trim())")
+    eq('帳號清單：沒綁管理系統同仁編號的帳號顯示 —', subs, ['—'] * len(subs))
     users = [(A['username'], '測試管理者', '管理員', '—', '啟用')] + [(a['username'], a['name'], '會計', '、'.join(DS.BRANDS[x] for x in sorted(a['brands'])), '啟用') for a in (D['acc_multi'], D['acc_single'])]
     eq('帳號清單（帳號／姓名／角色／可管理品牌／狀態）', sorted(tuple(r) for r in rows), sorted(users))
     ck(page, '#add', '新增帳號')
