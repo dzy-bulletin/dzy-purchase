@@ -169,7 +169,8 @@ var Common = (function () {
     }
     /* 尚未指派品牌：悄悄重要券（不改畫面） */
     function quietRefresh() {
-      if (busy || recovering || Date.now() - lastQuiet < 20e3) return;
+      // 最多每 60 秒一次、分頁在背景不查（審查：同一個網路多人開著時，避免撞到 /sso 每來源每分鐘 20 次的限流）
+      if (busy || recovering || document.hidden || Date.now() - lastQuiet < 60e3) return;
       lastQuiet = Date.now(); quiet = true; ready();
     }
     function watchBrand() {

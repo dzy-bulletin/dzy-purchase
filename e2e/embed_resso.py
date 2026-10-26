@@ -210,7 +210,7 @@ def main():
         wait(lambda: shown(page, '尚未指派品牌'))
         nap(1)
         fake.ident = {'role': 'accountant', 'name': '測試新同仁', 'brands': [{'id': 'X', 'name': '測試品牌'}]}
-        nap(21)                                                    # 悄悄重要券最少間隔 20 秒
+        nap(61)                                                    # 悄悄重要券最少間隔 60 秒
         frame(page).evaluate("()=>window.dispatchEvent(new Event('focus'))")
         check('沒品牌頁開著：admin 勾品牌、回到分頁 → 自動進核對頁', wait(lambda: not shown(page, '尚未指派品牌') and (sess(page) or {}).get('brands'), 15), sess(page))
         s = fake.sso
