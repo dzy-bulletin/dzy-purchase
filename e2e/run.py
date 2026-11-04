@@ -2035,6 +2035,9 @@ def admin_flows(P, S, D, M, slips):
     page.select_option('#panel [data-k="role"]', 'admin')
     page.select_option('#panel [data-k="role"]', 'accountant')
     for b in DS.BRANDS:
+        if b not in D['brand_order']:        # 沒上場的品牌：勾一下再取消，讓按鈕稽核涵蓋
+            ck(page, f'#panel input[data-bk={b}]', f'勾選品牌 {b}')
+            ck(page, f'#panel input[data-bk={b}]', f'取消品牌 {b}')
         if page.evaluate(f"()=>document.querySelector('#panel input[data-bk={b}]').checked"):
             page.evaluate(f"()=>document.querySelector('#panel input[data-bk={b}]').click()")
     page.fill('#panel [data-k="password"]', 'abcdef')

@@ -165,6 +165,7 @@ def make_dataset(rng, today):
     D = {'today': today, 'brands': BRANDS}
     bids = list(BRANDS)
     rng.shuffle(bids)
+    bids = bids[:3]                          # 每次隨機抽 3 個品牌上場（帳號結構＝多品牌會計 2＋單品牌會計 1）；沒上場的品牌只測勾選框
     D['brand_order'] = bids
     # 帳號
     multi = bids[:2]
