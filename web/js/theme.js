@@ -6,6 +6,7 @@ var THEMES = {
   M: { name: '墨竹亭', en: 'MO ZHU TING', brand: '#86CBBF', ink: '#202B66', logos: ['mzt'] },
   C: { name: '央廚', en: 'CENTRAL KITCHEN', brand: '#1F4E8C', ink: '#FFFFFF', logos: ['mzt', 'mala'] },
   X: { name: '小辛辣', en: 'MADE SIAO SIN LA', brand: '#FABE00', ink: '#231815', logos: ['mala'], full: '麻的小辛辣' },
+  H: { name: '總部', en: 'DZY HEADQUARTERS', brand: '#8C2F39', ink: '#FFFFFF', logos: [], full: '鼎兆元總部' },
   _: { name: '鼎兆元', en: 'DING ZHAO YUAN', brand: '#FABE00', ink: '#231815', logos: [] }
 };
 var VAR_MAP = { brand: '--brand', ink: '--brand-ink' };

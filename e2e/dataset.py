@@ -13,7 +13,7 @@ import unicodedata
 from datetime import date, timedelta
 from decimal import Decimal
 
-BRANDS = {'X': '小辛辣', 'M': '墨竹亭', 'C': '央廚'}
+BRANDS = {'X': '小辛辣', 'M': '墨竹亭', 'C': '央廚', 'H': '總部'}
 COST_CATS = ['食材', '包材', '雜貨', '其他', '未分類']
 CATS4 = COST_CATS[:4]
 EPS = 2.220446049250313e-16

@@ -2034,7 +2034,7 @@ def admin_flows(P, S, D, M, slips):
     mark(page, '#panel select[data-k="role"]', '選角色')
     page.select_option('#panel [data-k="role"]', 'admin')
     page.select_option('#panel [data-k="role"]', 'accountant')
-    for b in ('X', 'M', 'C'):
+    for b in DS.BRANDS:
         if page.evaluate(f"()=>document.querySelector('#panel input[data-bk={b}]').checked"):
             page.evaluate(f"()=>document.querySelector('#panel input[data-bk={b}]').click()")
     page.fill('#panel [data-k="password"]', 'abcdef')
@@ -2060,7 +2060,7 @@ def admin_flows(P, S, D, M, slips):
     page.fill('#panel [data-k="password"]', upw2)
     form_save(page)
     d, c, j = login(uname, upw2)
-    check('編輯帳號：加勾品牌、重設密碼後再次被要求改密碼', d and d['must_change_password'] and sorted(b['id'] for b in d['brands']) == sorted(D['brand_order']), (c, d and d['brands']))
+    check('編輯帳號：加勾品牌、重設密碼後再次被要求改密碼', d and d['must_change_password'] and sorted(b['id'] for b in d['brands']) == sorted(pick + [third]), (c, d and d['brands']))
     # 停用帳號
     page.locator('#body tbody tr').nth(rows.index(uname)).locator('[data-e]').click()
     page.wait_for_selector('#pSave')

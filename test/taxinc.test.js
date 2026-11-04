@@ -201,13 +201,13 @@ test('遷移 v9：既有 v8 資料庫安全升級，既有貨單與廠商 tax_in
   db.exec('DROP INDEX idx_users_dzy_sub; DROP INDEX idx_sessions_sub; ALTER TABLE users DROP COLUMN dzy_sub; ALTER TABLE sessions DROP COLUMN sub; ALTER TABLE sessions DROP COLUMN verified_at; ALTER TABLE sessions DROP COLUMN tried_at; ALTER TABLE sessions DROP COLUMN token_after; ALTER TABLE slips DROP COLUMN tax_included; ALTER TABLE vendors DROP COLUMN tax_included; ALTER TABLE vendors DROP COLUMN auto_created; PRAGMA user_version = 8;');   // 倒回 v8
   db.close();
   db = openDb(dir);
-  assert.strictEqual(db.prepare('PRAGMA user_version').get().user_version, 11);
+  assert.strictEqual(db.prepare('PRAGMA user_version').get().user_version, 12);
   assert.strictEqual(db.prepare("SELECT tax_included t, total FROM slips WHERE id='S1'").get().t, 0);
   assert.strictEqual(db.prepare("SELECT total FROM slips WHERE id='S1'").get().total, 1050);
   assert.strictEqual(db.prepare("SELECT tax_included t FROM vendors WHERE name='舊廠商'").get().t, 0);
   db.close();
   db = openDb(dir);
-  assert.strictEqual(db.prepare('PRAGMA user_version').get().user_version, 11);
+  assert.strictEqual(db.prepare('PRAGMA user_version').get().user_version, 12);
   db.close(); fs.rmSync(dir, { recursive: true, force: true });
 });
 
