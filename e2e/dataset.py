@@ -13,7 +13,7 @@ import unicodedata
 from datetime import date, timedelta
 from decimal import Decimal
 
-BRANDS = {'X': '小辛辣', 'M': '墨竹亭', 'C': '央廚'}
+BRANDS = {'X': '小辛辣', 'M': '墨竹亭', 'C': '央廚', 'H': '總部'}
 COST_CATS = ['食材', '包材', '雜貨', '其他', '未分類']
 CATS4 = COST_CATS[:4]
 EPS = 2.220446049250313e-16
@@ -165,6 +165,7 @@ def make_dataset(rng, today):
     D = {'today': today, 'brands': BRANDS}
     bids = list(BRANDS)
     rng.shuffle(bids)
+    bids = bids[:3]                          # 每次隨機抽 3 個品牌上場（帳號結構＝多品牌會計 2＋單品牌會計 1）；沒上場的品牌只測勾選框
     D['brand_order'] = bids
     # 帳號
     multi = bids[:2]

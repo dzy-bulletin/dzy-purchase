@@ -11,7 +11,7 @@ const { loadConfig } = require('../config');
 const { openDb, audit } = require('../db');
 const { hashPassword } = require('../auth');
 
-const BRANDS = [['X', '小辛辣'], ['M', '墨竹亭'], ['C', '央廚']];
+const BRANDS = [['X', '小辛辣'], ['M', '墨竹亭'], ['C', '央廚'], ['H', '總部']];
 // [代號, 品牌, 名稱]
 const STORES = [
   ['CF', 'C', '中央廚房'],

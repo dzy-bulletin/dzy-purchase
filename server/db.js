@@ -111,7 +111,10 @@ const MIGRATIONS = [
    ALTER TABLE sessions ADD COLUMN verified_at TEXT;
    ALTER TABLE sessions ADD COLUMN tried_at TEXT;
    ALTER TABLE sessions ADD COLUMN token_after INTEGER NOT NULL DEFAULT 0;
-   CREATE INDEX idx_sessions_sub ON sessions(sub);`
+   CREATE INDEX idx_sessions_sub ON sessions(sub);`,
+  // v12（2026-11-04 Eason：鼎兆元總部放在「總部」，不歸屬央廚）：第四個品牌 H 總部。
+  //  INSERT OR IGNORE：已有 H 列（例如先手動加過）就不動，既有資料不受影響；舊程式開 v12 庫照常可用（只多一列資料）。
+  `INSERT OR IGNORE INTO brands (id, name) VALUES ('H', '總部');`
 ];
 
 function openDb(dataDir) {

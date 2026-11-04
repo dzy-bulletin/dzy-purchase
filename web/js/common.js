@@ -7,7 +7,7 @@ function num(v) { if (v === '' || v == null) return null; var n = parseFloat(Str
 /* 金額顯示：千分位、小數為 0 時不顯示小數 */
 function fmt(n) { if (n == null || n === '') return ''; return r2(+n).toLocaleString('en-US', { maximumFractionDigits: 2 }); }
 var CATS = ['食材', '包材', '雜貨', '其他'];
-var BRAND_NAME = { M: '墨竹亭', C: '央廚', X: '小辛辣' };
+var BRAND_NAME = { M: '墨竹亭', C: '央廚', X: '小辛辣', H: '總部' };
 
 var Common = (function () {
   var ADMIN_KEY = 'purchase_admin_brand';
@@ -74,7 +74,7 @@ var Common = (function () {
   }
   /* 品牌切換：admin＝工作品牌、多品牌會計＝目前品牌（單品牌不顯示）。一般模式放側欄，嵌入模式放主欄頂部 */
   function pickerHTML(s) {
-    var picker = s.role === 'admin' ? '<label class="spick">工作品牌<select id="brandPick">' + ['X', 'M', 'C'].map(function (b) { return '<option value="' + b + '"' + (adminBrand() === b ? ' selected' : '') + '>' + BRAND_NAME[b] + '</option>'; }).join('') + '</select></label>' : '';
+    var picker = s.role === 'admin' ? '<label class="spick">工作品牌<select id="brandPick">' + ['X', 'M', 'C', 'H'].map(function (b) { return '<option value="' + b + '"' + (adminBrand() === b ? ' selected' : '') + '>' + BRAND_NAME[b] + '</option>'; }).join('') + '</select></label>' : '';
     if (s.role === 'accountant' && (s.brands || []).length > 1) {
       picker = '<label class="spick">目前品牌<select id="brandSwitch">' + s.brands.map(function (b) { return '<option value="' + esc(b.id) + '"' + (s.brand_id === b.id ? ' selected' : '') + '>' + esc(b.name || BRAND_NAME[b.id] || b.id) + '</option>'; }).join('') + '</select></label>';
     }
