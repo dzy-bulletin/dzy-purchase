@@ -27,7 +27,7 @@ function seed(db, env) {
     return { pw, given: false, label };
   };
   db.tx(() => {
-    for (const [id, name] of [['X', '小辛辣'], ['M', '墨竹亭'], ['C', '央廚']]) {
+    for (const [id, name] of [['X', '小辛辣'], ['M', '墨竹亭'], ['C', '央廚'], ['H', '總部']]) {
       db.prepare('INSERT OR IGNORE INTO brands (id, name) VALUES (?,?)').run(id, name);
     }
     const store = (code, brand, name, key) => {
