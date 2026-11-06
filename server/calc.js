@@ -158,4 +158,4 @@ function clearPriceAlerts(db, slipId) {
 }
 
 module.exports = { CATEGORIES, COST_CATS, cents, fromCents, isMonth, periodOf, lastDay, convMap, factorOf, confirmedLines, withBase,
-  weightedAvg, avgFor, allocateTax, slipCosts, costReport, generatePriceAlerts, clearPriceAlerts };
+  weightedAvg, avgFor, allocateTax, slipCosts, costReport, generatePriceAlerts, clearPriceAlerts, netRatio };

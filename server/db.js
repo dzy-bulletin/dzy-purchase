@@ -114,7 +114,10 @@ const MIGRATIONS = [
    CREATE INDEX idx_sessions_sub ON sessions(sub);`,
   // v12（2026-11-04 Eason：鼎兆元總部放在「總部」，不歸屬央廚）：第四個品牌 H 總部。
   //  INSERT OR IGNORE：已有 H 列（例如先手動加過）就不動，既有資料不受影響；舊程式開 v12 庫照常可用（只多一列資料）。
-  `INSERT OR IGNORE INTO brands (id, name) VALUES ('H', '總部');`
+  `INSERT OR IGNORE INTO brands (id, name) VALUES ('H', '總部');`,
+  // v13（2026-11-07 貨單價格同步 P1）：入帳事件 price_feed＋settings.feed_epoch，並依入帳先後回填既有已入帳單。
+  //  這一格是函式（要用 JS 組事件內容），跟其他格一樣在同一個遷移交易內、開始收 HTTP 之前跑完；舊程式開 v13 庫照常可用（只多兩張表）。
+  (db) => require('./price-feed').migrate(db),
 ];
 
 function openDb(dataDir) {
@@ -130,7 +133,7 @@ function openDb(dataDir) {
   while (ver < MIGRATIONS.length) {
     db.exec('BEGIN');
     try {
-      db.exec(MIGRATIONS[ver]);
+      if (typeof MIGRATIONS[ver] === 'function') MIGRATIONS[ver](db); else db.exec(MIGRATIONS[ver]);
       db.exec(`PRAGMA user_version = ${ver + 1}`);
       db.exec('COMMIT');
     } catch (e) { db.exec('ROLLBACK'); throw e; }
