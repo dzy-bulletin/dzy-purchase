@@ -6,41 +6,42 @@ const calc = require('./calc');
 
 const LIMIT_MAX = 200;
 
-// 稅別：跟 calc.netRatio 同一組條件。untaxed＝這張單未稅；split＝含稅且稅額拆得開；unknown＝含稅但拆不開（netRatio 會當 1:1）
-function taxStatusOf(s) {
-  if (!s.tax_included) return 'untaxed';
-  if (s.tax == null || !(s.total > 0) || s.tax < 0 || s.tax >= s.total) return 'unknown';
-  return 'split';
-}
+const { ApiError } = require('./http-util');
+const taxStatusOf = calc.taxStatusOf;
 
 // 一張單的事件內容（不含 id）。kind=unconfirm 時明細與照片為空
-function buildPayload(db, slipId, kind) {
+function buildPayload(db, slipId, kind, conv) {
   const s = db.prepare(`SELECT s.id, s.store_id, s.doc_date, s.tax, s.total, s.tax_included, s.vendor_name_raw, v.name vendor
     FROM slips s LEFT JOIN vendors v ON v.id = s.vendor_id WHERE s.id = ?`).get(slipId);
   if (!s) return null;
   const out = { kind, slip_id: s.id, doc_date: s.doc_date || null, vendor_name: s.vendor || s.vendor_name_raw || null, tax_status: taxStatusOf(s), photos: [], lines: [] };
   if (kind !== 'confirm') return out;
   out.photos = db.prepare('SELECT seq FROM slip_photos WHERE slip_id = ? ORDER BY seq').all(slipId).map((r) => r.seq);
-  const conv = calc.convMap(db);
+  const cv = conv || calc.convMap(db);
   const rows = db.prepare(`SELECT l.seq, l.item_id, l.raw_name, l.unit, l.qty, l.amount, i.name item_name, i.base_unit
     FROM slip_lines l LEFT JOIN items i ON i.id = l.item_id WHERE l.slip_id = ? ORDER BY l.seq`).all(slipId);
   out.lines = rows.map((r) => ({
     seq: r.seq, item_id: r.item_id == null ? null : r.item_id, item_name: r.item_name || null, raw_name: r.raw_name || '',
     unit: r.unit || null, qty: r.qty == null ? null : r.qty, amount: r.amount == null ? null : r.amount,
-    net_amount: r.amount == null ? null : Math.round(r.amount * calc.netRatio(s) * 100) / 100,
+    net_amount: r.amount == null ? null : r.amount * calc.netRatio(s),   // 不捨入，跟 calc.withBase 同一個數；捨入留給最後算價格的一方
     base_unit: r.base_unit || null,
-    factor: r.item_id == null ? null : calc.factorOf(conv, r.item_id, r.unit, r.base_unit),
+    factor: r.item_id == null ? null : calc.factorOf(cv, r.item_id, r.unit, r.base_unit),
   }));
   return out;
 }
 
 // 寫一筆事件（呼叫端負責交易）。at 由呼叫端給，回填時用 confirmed_at
-function record(db, slipId, kind, at) {
-  const p = buildPayload(db, slipId, kind);
+function record(db, slipId, kind, at, conv) {
+  const p = buildPayload(db, slipId, kind, conv);
   if (!p) return null;
   const st = db.prepare('SELECT store_id FROM slips WHERE id = ?').get(slipId);
-  return Number(db.prepare('INSERT INTO price_feed (store_id, slip_id, kind, at, payload) VALUES (?,?,?,?,?)')
-    .run(st.store_id, slipId, kind, at, JSON.stringify(p)).lastInsertRowid);
+  try {
+    return Number(db.prepare('INSERT INTO price_feed (store_id, slip_id, kind, at, payload) VALUES (?,?,?,?,?)')
+      .run(st.store_id, slipId, kind, at, JSON.stringify(p)).lastInsertRowid);
+  } catch (e) {
+    if (/UNIQUE/.test(String(e && e.message))) throw new ApiError('CONFLICT', '這張貨單剛剛才改過狀態，請稍等一秒再試');   // 同一毫秒內同一張單重複入帳／取消
+    throw e;
+  }
 }
 
 // 遷移 v13 用：建表、產 epoch、依入帳先後回填既有已入帳單（在 openDb 的遷移交易內，開始收 HTTP 之前跑完）
@@ -50,8 +51,9 @@ function migrate(db) {
     CREATE INDEX idx_price_feed_store ON price_feed(store_id, id);
     CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
   db.prepare("INSERT INTO settings (key, value) VALUES ('feed_epoch', ?)").run(crypto.randomUUID());
+  const conv = calc.convMap(db);
   for (const r of db.prepare("SELECT id, confirmed_at FROM slips WHERE status = 'confirmed' ORDER BY confirmed_at, id").all()) {
-    record(db, r.id, 'confirm', r.confirmed_at || new Date(0).toISOString());
+    record(db, r.id, 'confirm', r.confirmed_at || new Date(0).toISOString(), conv);
   }
 }
 

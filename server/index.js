@@ -459,9 +459,13 @@ function makeApp(cfg, opts) {
   // 貨單價格同步（plan.md C1）：只給服務金鑰、只給 PRICE_FEED_STORES 裡的門市；營運系統依 after 往下讀
   route('GET', /^\/svc\/price-feed$/, ['store'], async ({ p, url }) => {
     if (!p.via_service_key) throw new ApiError('FORBIDDEN', '入帳事件只能用服務金鑰讀取');
-    const code = String(p.store_code || p.code || '').toUpperCase();
-    if (!cfg.PRICE_FEED_STORES.includes(code)) throw new ApiError('FORBIDDEN', '這家門市沒有開貨單價格同步');
-    const int = (k) => { const v = url.searchParams.get(k); return v != null && /^\d{1,12}$/.test(v) ? Number(v) : undefined; };
+    if (!cfg.PRICE_FEED_STORES.includes(String(p.code || '').toUpperCase())) throw new ApiError('FORBIDDEN', '這家門市沒有開貨單價格同步');
+    const int = (k) => {
+      const v = url.searchParams.get(k);
+      if (v == null || v === '') return undefined;
+      if (!/^\d{1,12}$/.test(v)) throw new ApiError('BAD_INPUT', `${k} 要是 0 以上的整數`);   // 不靜默當 0，免得營運端從頭重拉
+      return Number(v);
+    };
     return priceFeed.page(db, p.store_id, int('after'), int('limit'));
   });
   require('./pnl-map')(rctx);

@@ -76,7 +76,7 @@ test('含稅單：稅額拆得開 → split 且 net_amount 已扣稅；稅額空
     const b = await reviewSlip(t);
     await confirmSlip(t, acc, b, { tax_included: 1, tax: null, total: 420 });
     const ev = (await t.call('GET', '/svc/price-feed', { headers: sk('C01') })).data.events;
-    assert.strictEqual(ev[0].tax_status, 'split'); assert.strictEqual(ev[0].lines[0].net_amount, 400);
+    assert.strictEqual(ev[0].tax_status, 'split'); assert.ok(Math.abs(ev[0].lines[0].net_amount - 400) < 1e-9);
     assert.strictEqual(ev[1].tax_status, 'unknown'); assert.strictEqual(ev[1].lines[0].net_amount, 420);
   } finally { await t.close(); }
 });
@@ -95,7 +95,9 @@ test('分頁：450 筆分三頁不漏不重；limit 上限 200', async () => {
       assert.ok(d.events.length <= 200);
       seen.push(...d.events.map((e) => e.id)); after = d.last_id; more = d.has_more; pages++;
     }
-    assert.strictEqual(pages, 3); assert.strictEqual(seen.length, 450); assert.strictEqual(new Set(seen).size, 450);
+    assert.strictEqual(pages, 3); assert.strictEqual(seen.length, 450);
+    assert.strictEqual((await t.call('GET', '/svc/price-feed', { headers: sk('C01') })).data.events.length, 200);   // 沒帶 limit＝200
+    for (const bad of ['-1', 'abc', '1.5']) assert.strictEqual((await t.call('GET', `/svc/price-feed?after=${bad}`, { headers: sk('C01') })).error, 'BAD_INPUT', bad); assert.strictEqual(new Set(seen).size, 450);
     assert.deepStrictEqual(seen, seen.slice().sort((x, y) => x - y));
   } finally { await t.close(); }
 });
@@ -111,8 +113,10 @@ test('範圍：不在 PRICE_FEED_STORES、名單空、一般登入、錯金鑰�
     const mine = (await t.call('GET', '/svc/price-feed', { headers: sk('C01') })).data.events;
     assert.deepStrictEqual(mine.map((e) => e.slip_id), ['SC']);
     assert.strictEqual((await t.call('GET', '/svc/price-feed', { headers: sk('M01') })).error, 'FORBIDDEN');
-    const st = await t.login('C01', PASS.SEED_PASS_C01);
-    assert.strictEqual((await t.call('GET', '/svc/price-feed', { token: st })).error, 'FORBIDDEN');
+    for (const [acct, pw] of [['C01', PASS.SEED_PASS_C01], ['acc-c', PASS.SEED_PASS_ACC_C], ['admin', PASS.SEED_PASS_ADMIN]]) {
+      const tk = await t.login(acct, pw);
+      assert.strictEqual((await t.call('GET', '/svc/price-feed', { token: tk })).error, 'FORBIDDEN', acct);   // 一般登入一律讀不到
+    }
     assert.strictEqual((await t.call('GET', '/svc/price-feed', { headers: { 'X-Store-Key': 'wrong', 'X-Store-Code': 'C01' } })).status, 401);
   } finally { await t.close(); }
   const t2 = await startApp({ cfg: { STORE_SVC_KEY: KEY } });
@@ -148,4 +152,14 @@ test('遷移 v13：依入帳先後回填既有已入帳單；重開不重複；e
     assert.notStrictEqual(feed.resetEpoch(db), ep);
     db.close();
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('PRICE_FEED_STORES 解析：逗號分隔、去空白、轉大寫、空＝全關；netRatio 只在 split 時扣稅', () => {
+  const { loadConfig } = require('../server/config');
+  assert.deepStrictEqual(loadConfig({ PRICE_FEED_STORES: ' mdgf, C01 ,,' }).PRICE_FEED_STORES, ['MDGF', 'C01']);
+  assert.deepStrictEqual(loadConfig({}).PRICE_FEED_STORES, []);
+  const calc = require('../server/calc');
+  assert.strictEqual(calc.netRatio({ tax_included: 1, tax: null, total: 420 }), 1);
+  assert.strictEqual(calc.netRatio({ tax_included: 1, tax: 20, total: 420 }), 400 / 420);
+  assert.strictEqual(calc.netRatio({ tax_included: 0, tax: 20, total: 420 }), 1);
 });

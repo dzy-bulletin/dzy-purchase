@@ -15,6 +15,7 @@ const { loadConfig } = require('../config');
 const { openDb, audit } = require('../db');
 const { markDirty } = require('../pnl-push');
 const { photoFile } = require('../slips-common');
+const priceFeed = require('../price-feed');
 
 const code = process.argv[2];
 const apply = process.argv.includes('--apply');
@@ -64,6 +65,8 @@ const at = new Date().toISOString();
 const sub = 'SELECT id FROM slips WHERE store_id = ?';
 db.exec('BEGIN');
 try {
+  // 貨單價格同步：每張已入帳的單先記一筆「取消入帳」事件，營運系統會把這些單帶來的價格退回（事件留著，重建同步時也一樣成對抵銷）
+  for (const r of db.prepare("SELECT id FROM slips WHERE store_id = ? AND status = 'confirmed' ORDER BY confirmed_at, id").all(store.id)) priceFeed.record(db, r.id, 'unconfirm', at);
   db.prepare(`DELETE FROM price_alerts WHERE line_id IN (SELECT id FROM slip_lines WHERE slip_id IN (${sub}))`).run(store.id);
   db.prepare(`DELETE FROM slip_lines WHERE slip_id IN (${sub})`).run(store.id);
   db.prepare(`DELETE FROM slip_photos WHERE slip_id IN (${sub})`).run(store.id);
