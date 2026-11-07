@@ -63,8 +63,15 @@ function withBase(r, conv) {
   const net = r.amount == null ? null : r.amount * netRatio(r);
   return Object.assign({}, r, { converted: ok, base_qty: ok ? Math.round(base * 10000) / 10000 : null, net_amount: net, unit_cost: ok ? round2(net / base) : null });
 }
+// 稅別：untaxed＝這張單未稅；split＝含稅且稅額拆得開；unknown＝含稅但稅額空白或不合理（未稅金額只能 1:1 估）。
+// netRatio 與入帳事件（price-feed.js）都用這一個判斷，不要在別處另寫條件
+function taxStatusOf(s) {
+  if (!s.tax_included) return 'untaxed';
+  if (s.tax == null || !(s.total > 0) || s.tax < 0 || s.tax >= s.total) return 'unknown';
+  return 'split';
+}
 function netRatio(s) {
-  if (!s.tax_included || s.tax == null || !(s.total > 0) || s.tax < 0 || s.tax >= s.total) return 1;
+  if (taxStatusOf(s) !== 'split') return 1;
   return (s.total - s.tax) / s.total;
 }
 
@@ -158,4 +165,4 @@ function clearPriceAlerts(db, slipId) {
 }
 
 module.exports = { CATEGORIES, COST_CATS, cents, fromCents, isMonth, periodOf, lastDay, convMap, factorOf, confirmedLines, withBase,
-  weightedAvg, avgFor, allocateTax, slipCosts, costReport, generatePriceAlerts, clearPriceAlerts };
+  weightedAvg, avgFor, allocateTax, slipCosts, costReport, generatePriceAlerts, clearPriceAlerts, netRatio, taxStatusOf };

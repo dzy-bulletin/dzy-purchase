@@ -50,6 +50,8 @@ function loadConfig(envIn) {
     BACKUP_KEY: env.BACKUP_KEY || '',
     BACKUP_TIMEOUT_MS: num(env.BACKUP_TIMEOUT_MS, 90000),
     STORE_SVC_KEY: env.STORE_SVC_KEY || '',                   // 門市營運系統服務金鑰；空＝通道關閉
+    // 入帳事件（貨單價格同步）只開給這些門市代號，逗號分隔；空＝全關（mala-store-ops docs/price-sync/spec.md 7.1[16]）
+    PRICE_FEED_STORES: (env.PRICE_FEED_STORES || '').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean),
     STORE_LOGIN_OFF: env.STORE_LOGIN_OFF === '1',             // 1＝門市密碼登入關閉（改走門市營運系統）
     // 會計從鼎兆元管理系統嵌入（dzy 倉庫 docs/purchase-fin/spec.md §4）：平台 /api 網址＋服務金鑰；任一沒設＝/sso 回 FORBIDDEN
     DZY_PLATFORM_URL: (env.DZY_PLATFORM_URL || '').trim(),

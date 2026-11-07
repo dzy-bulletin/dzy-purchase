@@ -20,7 +20,7 @@ test('全新資料庫自帶 H 總部；既有 v11 資料庫升級後補上 H、�
   raw.exec("INSERT INTO brands (id, name) VALUES ('X','小辛辣'), ('M','墨竹亭'), ('C','央廚'); INSERT INTO stores (brand_id, code, name, pass_hash) VALUES ('C','CF','中央廚房','x');");
   raw.close();
   const db = openDb(dir);
-  assert.strictEqual(db.prepare('PRAGMA user_version').get().user_version, 12);
+  assert.strictEqual(db.prepare('PRAGMA user_version').get().user_version, 13);
   assert.deepStrictEqual(db.prepare('SELECT id, name FROM brands ORDER BY id').all().map((r) => r.id + r.name), ['C央廚', 'H總部', 'M墨竹亭', 'X小辛辣']);
   assert.strictEqual(db.prepare("SELECT brand_id FROM stores WHERE code = 'CF'").get().brand_id, 'C');
   db.close();

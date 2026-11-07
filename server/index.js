@@ -11,6 +11,7 @@ const A = require('./auth');
 const { ApiError, sendJson, readBody, parseMultipart } = require('./http-util');
 const { evaluate, parseNum, parseManualDate, hasRed } = require('./postprocess');
 const calc = require('./calc');
+const priceFeed = require('./price-feed');
 const { createWorker } = require('./worker');
 const { createPnlPush } = require('./pnl-push');
 const dzyClient = require('./dzy');
@@ -373,7 +374,8 @@ function makeApp(cfg, opts) {
     const miss = r.lines.findIndex((l) => l.qty == null || l.unit_price == null || l.amount == null);
     if (miss >= 0) throw new ApiError('BAD_INPUT', `第 ${miss + 1} 列的數量、單價、金額都要填`);
     if (r.lines.some((l) => !l.checked)) throw new ApiError('CONFLICT', '還有明細列沒打勾');
-    db.prepare("UPDATE slips SET status='confirmed', confirmed_at=?, confirmed_by=? WHERE id=?").run(isoNow(), A.whoOf(p), s.id);
+    const confirmedAt = isoNow();
+    db.prepare("UPDATE slips SET status='confirmed', confirmed_at=?, confirmed_by=? WHERE id=?").run(confirmedAt, A.whoOf(p), s.id);
     if (cur.vendor_id) db.prepare('UPDATE vendors SET tax_included = ? WHERE id = ?').run(cur.tax_included ? 1 : 0, cur.vendor_id);   // 廠商記憶：入帳時把這張的旗標寫回廠商
     // 廠商記憶：有對到統一品名的列，記下「廠商＋原始寫法 → 品名」；再算價格變動提醒（先清掉舊的，避免重複）
     if (cur.vendor_id) {
@@ -383,6 +385,7 @@ function makeApp(cfg, opts) {
     calc.clearPriceAlerts(db, s.id);
     calc.generatePriceAlerts(db, s.id, isoNow());
     pnlPush.markDirty(cur.store_id, cur.doc_date, isoNow());          // 損益推送：入帳 → 該店該月重推
+    priceFeed.record(db, s.id, 'confirm', confirmedAt);                // 貨單價格同步：入帳事件（同一交易，入帳失敗就不會有事件）
     audit(db, A.whoOf(p), 'confirm', s.id, before, snapshot(slipRow(s.id)));
     return detail(slipRow(s.id));
   }));
@@ -398,6 +401,7 @@ function makeApp(cfg, opts) {
       calc.clearPriceAlerts(db, s.id);                                   // 取消入帳 → 撤銷這張產生的價格提醒
       pnlPush.markDirty(s.store_id, s.doc_date, isoNow());               // 損益推送：取消入帳 → 該店該月重推（該科目可能變 0）
       db.prepare("UPDATE slips SET status='review', confirmed_at=NULL, confirmed_by=NULL WHERE id=?").run(s.id);
+      priceFeed.record(db, s.id, 'unconfirm', isoNow());                // 貨單價格同步：取消入帳事件
       audit(db, A.whoOf(p), 'unconfirm', s.id, before, Object.assign(snapshot(slipRow(s.id)), { reason }));
       return detail(slipRow(s.id));
     });
@@ -452,6 +456,18 @@ function makeApp(cfg, opts) {
   require('./master')(rctx);
   require('./reports')(rctx);
   // ---------- P3：損益對照、健康檢查 ----------
+  // 貨單價格同步（plan.md C1）：只給服務金鑰、只給 PRICE_FEED_STORES 裡的門市；營運系統依 after 往下讀
+  route('GET', /^\/svc\/price-feed$/, ['store'], async ({ p, url }) => {
+    if (!p.via_service_key) throw new ApiError('FORBIDDEN', '入帳事件只能用服務金鑰讀取');
+    if (!cfg.PRICE_FEED_STORES.includes(String(p.code || '').toUpperCase())) throw new ApiError('FORBIDDEN', '這家門市沒有開貨單價格同步');
+    const int = (k) => {
+      const v = url.searchParams.get(k);
+      if (v == null || v === '') return undefined;
+      if (!/^\d{1,12}$/.test(v)) throw new ApiError('BAD_INPUT', `${k} 要是 0 以上的整數`);   // 不靜默當 0，免得營運端從頭重拉
+      return Number(v);
+    };
+    return priceFeed.page(db, p.store_id, int('after'), int('limit'));
+  });
   require('./pnl-map')(rctx);
   require('./health')(rctx);
   // ---------- 會計從鼎兆元管理系統嵌入 ----------
@@ -476,8 +492,9 @@ function makeApp(cfg, opts) {
           const sp = cfg.STORE_SVC_KEY || req.headers['x-store-key'] !== undefined ? A.authenticateServiceKey(db, req, cfg.STORE_SVC_KEY) : null;
           if (sp) {                                                  // 服務金鑰通道：只放行上傳與查自己
             const ok = (req.method === 'POST' && sub === '/slips') || (req.method === 'GET' && sub === '/slips' && url.searchParams.get('mine') === '1')
-              || (req.method === 'GET' && sub === '/vendors' && !url.searchParams.has('all')) || (req.method === 'GET' && /^\/photos\/[^/]+\/\d+$/.test(sub));
-            if (!ok) throw new ApiError('FORBIDDEN', '服務金鑰只能用於上傳貨單、查詢廠商與查詢自己門市的貨單和照片');
+              || (req.method === 'GET' && sub === '/vendors' && !url.searchParams.has('all')) || (req.method === 'GET' && /^\/photos\/[^/]+\/\d+$/.test(sub))
+              || (req.method === 'GET' && sub === '/svc/price-feed');
+            if (!ok) throw new ApiError('FORBIDDEN', '服務金鑰只能用於上傳貨單、查詢廠商、查詢自己門市的貨單和照片，以及讀取入帳事件');
             p = sp; A.requireRole(p, ...r.roles);
           } else {
             p = A.authenticate(db, req, now(), authOpts());

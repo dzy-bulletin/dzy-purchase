@@ -638,7 +638,7 @@ Funnel 網址：**在對話裡**交給 Eason，不寫在上面（唯一例外：
 
 ## 部署中途更新（程式已有新版、Mac mini 已在跑）
 
-更新是安全的：資料庫遷移以 `PRAGMA user_version` 自動往上（v8＝首次登入強制改密碼：既有門市與會計帳號設為「第一次登入要改密碼」、admin 不用），在交易內執行、失敗會整段回滾，不會掉資料。**更新前先備份 `$DATA/purchase.db`（`cp` 一份即可）。** 注意：更新後**所有既有門市與會計第一次登入都會被要求改密碼**，先告知店長與會計。
+更新是安全的：資料庫遷移以 `PRAGMA user_version` 自動往上（v8＝首次登入強制改密碼：既有門市與會計帳號設為「第一次登入要改密碼」、admin 不用），在交易內執行、失敗會整段回滾，不會掉資料。**更新前先備份 `$DATA/purchase.db`（`cp` 一份即可）。**（萬一要拿這份備份**還原**回去，還原後一定要跑 `node server/tools/reset-feed-epoch.js --apply`，見最後一節「貨單價格同步」。） 注意：更新後**所有既有門市與會計第一次登入都會被要求改密碼**，先告知店長與會計。
 
 在 Mac mini 上：
 
@@ -715,7 +715,7 @@ curl -s --max-time 10 http://127.0.0.1:8793/health | python3 -c 'import json,sys
 
 | 設定（環境變數／.env） | 用途 |
 |---|---|
-| `STORE_SVC_KEY` | 服務金鑰。未設或空字串＝通道關閉。有設時，請求帶 `X-Store-Key`（金鑰）＋`X-Store-Code`（門市代號，須存在且啟用）即視為該門市。**只放行** `POST /purchase/api/slips`（上傳）與 `GET /purchase/api/slips?mine=1`（查自己 30 天），其他路由一律 403；金鑰錯、門市代號不存在或停用回 401。 |
+| `STORE_SVC_KEY` | 服務金鑰。未設或空字串＝通道關閉。有設時，請求帶 `X-Store-Key`（金鑰）＋`X-Store-Code`（門市代號，須存在且啟用）即視為該門市。**只放行** `POST /purchase/api/slips`（上傳）、`GET /purchase/api/slips?mine=1`（查自己 30 天）、查廠商、自己門市的照片，以及 `GET /purchase/api/svc/price-feed`（入帳事件，另受 `PRICE_FEED_STORES` 限制），其他路由一律 403；金鑰錯、門市代號不存在或停用回 401。 |
 | `STORE_LOGIN_OFF` | 設為 `1` 時，門市帳號的密碼登入回 403「門市請改用門市營運系統登入」，已存在的門市 session 也立即失效；會計與管理者登入完全不受影響。其他值＝關閉。 |
 | `DZY_PLATFORM_URL` | 鼎兆元管理系統平台後端 `/api` 網址（會計從管理系統「財務部門 → 貨單核對」嵌入進來時兌換入場券、每 5 分鐘重查身分）。與下一列任一沒設＝`POST /purchase/api/sso`、`/sso/counts` 回 403。 |
 | `DZY_PURCHASE_SVC_KEY` | 與平台 Script Property `PURCHASE_SVC_KEY` 相同的服務金鑰（只在兩台本機服務之間，瀏覽器拿不到）。 |
@@ -732,3 +732,12 @@ launchctl kickstart -k "gui/$(id -u)/com.dzy.purchase"    # 重啟生效
 ```
 
 回退：從 `.env` 刪掉這兩行並重啟即恢復原狀。先確認營運系統通道運作正常，再開 `STORE_LOGIN_OFF`。
+
+## 貨單價格同步（2026-11-07 P1；規格在 mala-store-ops `docs/price-sync/`）
+| 設定（.env） | 用途 |
+|---|---|
+| `PRICE_FEED_STORES` | 逗號分隔的門市代號，例 `MDGF`。只有這些門市可以用服務金鑰讀 `GET /purchase/api/svc/price-feed`（入帳／取消入帳事件）。沒設或空＝全關。 |
+
+- 入帳、取消入帳時，同一個交易會寫一筆 `price_feed`（清店工具 `delete-store-slips.js --apply` 刪已入帳單前，也會先各記一筆取消入帳）；升到 v13 時會把既有已入帳單依入帳先後補成事件。**只多寫資料，不影響現有功能**。
+- 開啟：`echo 'PRICE_FEED_STORES=MDGF' >> .env` 後重啟服務。回退：刪掉這行再重啟（事件照寫、但沒人讀得到）。
+- **不論用哪一種方式把 `purchase.db` 換回舊版本（cp 備份、雲端備份、VACUUM INTO 檔），換完都一定要跑**：`node server/tools/reset-feed-epoch.js --apply`（換世代編號，營運系統才會發現並重建同步，不會默默漏單）。

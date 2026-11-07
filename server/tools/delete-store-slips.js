@@ -7,6 +7,7 @@
 // --apply 會先做兩件保險：
 //   1. 整個資料庫備份到 DATA_DIR/before-delete-<代號>-<時間>.db（VACUUM INTO，可直接拿來還原）
 //   2. 照片不刪，整批搬到 DATA_DIR/deleted-photos/<代號>-<時間>/
+// 貨單價格同步：刪除前，每張已入帳的單先在同一交易記一筆「取消入帳」事件，門市營運系統會把這些單帶來的庫存價格退回。
 // 損益：刪除後對「曾有已入帳貨單的月份」＋「曾推送過的月份」呼叫 markDirty，貨單伺服器的推送迴圈（60 秒內）會重算並推送，
 // 該店該月進貨科目變 0。伺服器不用重啟。已定稿的月份損益端會拒收，會出現在損益推送異常裡，需到損益系統解除定稿後重推。
 const fs = require('fs');
@@ -15,6 +16,7 @@ const { loadConfig } = require('../config');
 const { openDb, audit } = require('../db');
 const { markDirty } = require('../pnl-push');
 const { photoFile } = require('../slips-common');
+const priceFeed = require('../price-feed');
 
 const code = process.argv[2];
 const apply = process.argv.includes('--apply');
@@ -64,6 +66,8 @@ const at = new Date().toISOString();
 const sub = 'SELECT id FROM slips WHERE store_id = ?';
 db.exec('BEGIN');
 try {
+  // 貨單價格同步：每張已入帳的單先記一筆「取消入帳」事件，營運系統會把這些單帶來的價格退回（事件留著，重建同步時也一樣成對抵銷）
+  for (const r of db.prepare("SELECT id FROM slips WHERE store_id = ? AND status = 'confirmed' ORDER BY confirmed_at, id").all(store.id)) priceFeed.record(db, r.id, 'unconfirm', at);
   db.prepare(`DELETE FROM price_alerts WHERE line_id IN (SELECT id FROM slip_lines WHERE slip_id IN (${sub}))`).run(store.id);
   db.prepare(`DELETE FROM slip_lines WHERE slip_id IN (${sub})`).run(store.id);
   db.prepare(`DELETE FROM slip_photos WHERE slip_id IN (${sub})`).run(store.id);
