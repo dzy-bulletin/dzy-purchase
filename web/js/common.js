@@ -338,6 +338,7 @@ var Common = (function () {
     }
     if (API.embed) {
       document.documentElement.classList.add('embed');
+      if (/(?:^|[?&])ui=new(?:&|#|$)/.test(location.search)) document.documentElement.classList.add('ui-new');   // 管理系統新外觀（2026-11-16，style.css 最後一段）
       Embed = makeEmbed({ start: function () { start(); }, wait: showEmbedWait, started: function () { return started; } });
     }
     // 嵌入 session 失效（過期、admin 改了角色／品牌）：自動向管理系統重要一次入場券，失敗才顯示原因
