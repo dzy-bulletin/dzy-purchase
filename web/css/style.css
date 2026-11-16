@@ -195,3 +195,6 @@ html.embed .topbar .spick select{color:var(--ink);background:var(--surface);bord
 .esub:empty{display:none}
 .esub button{min-height:40px;padding:0 16px;border-radius:999px;font-weight:700}
 .esub button[aria-selected="true"]{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
+/* 管理系統新外觀（2026-11-16）：嵌在管理系統且網址帶 ui=new 時（html.embed.ui-new），色票換成管理系統新外觀（Apple 淺灰底、Apple 藍主要按鈕、紅色只給異常）。品牌 logo 色不動。 */
+html.embed.ui-new{--bg:#f5f5f7;--panel:#fafafa;--surface:#fff;--line:#e5e5ea;--faint:#f2f2f7;--ink:#1d1d1f;--sub:#6e6e73;--mute:#6e6e73;--button:#0066cc;--button-ink:#fff;--accent:#0066cc;--red:#d70015;--red-t:#c00012;--red-bg:#fff0f1;--shadow:0 1px 2px rgba(0,0,0,.04);--radius:10px;--card:14px}
+html.embed.ui-new body{-webkit-font-smoothing:antialiased}
